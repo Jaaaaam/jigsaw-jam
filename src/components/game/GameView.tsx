@@ -13,7 +13,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Confetti } from "./Confetti";
 import { SoundControl, ThemeToggle } from "@/components/PageShell";
 import {
-  ArrowLeftIcon, BulbIcon, CloseIcon, FitIcon, FrameIcon, FullscreenIcon,
+  ArrowLeftIcon, BulbIcon, CloseIcon, EyeIcon, EyeOffIcon, FitIcon, FrameIcon, FullscreenIcon,
   GearIcon, GhostIcon, ImageIcon, LayersIcon, LockIcon, MinusIcon, PauseIcon, PlayIcon, PlusIcon,
   ShuffleIcon, TidyIcon, ToolsIcon,
 } from "@/components/ui/icons";
@@ -55,6 +55,7 @@ export function GameView(props: GameViewProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(() => window.innerWidth >= 1024);
   const [viewLocked, setViewLocked] = useState(false);
+  const [uiHidden, setUiHidden] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
 
@@ -149,6 +150,17 @@ export function GameView(props: GameViewProps) {
     return () => clearInterval(t);
   }, []);
 
+  // H toggles the whole interface away for distraction-free puzzling
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key.toLowerCase() === "h") setUiHidden((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // board colour / texture follow settings
   useEffect(() => {
     controllerRef.current?.setOptions({ boardColor, boardTexture });
@@ -194,6 +206,28 @@ export function GameView(props: GameViewProps) {
         </div>
       )}
 
+      {/* ------------------------------------------------ zen mode restore */}
+      <AnimatePresence>
+        {uiHidden && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            aria-label="Show interface"
+            title="Show interface (H)"
+            className="glass absolute top-3 right-3 z-30 flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl text-secondary opacity-60 shadow-soft transition-opacity hover:opacity-100"
+            onClick={() => {
+              sounds.play("click");
+              setUiHidden(false);
+            }}
+          >
+            <EyeIcon />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {!uiHidden && (
+      <>
       {/* ------------------------------------------------ top bar */}
       <motion.header
         initial={{ y: -60, opacity: 0 }}
@@ -296,6 +330,7 @@ export function GameView(props: GameViewProps) {
                   if (controllerRef.current) controllerRef.current.viewLocked = !viewLocked;
                 }}
               />
+              <ToolRow icon={<EyeOffIcon />} label="Hide interface" onClick={() => setUiHidden(true)} />
               <ToolRow icon={<GearIcon />} label="Settings" onClick={() => setSettingsOpen(true)} />
             </motion.nav>
           ) : (
@@ -372,6 +407,8 @@ export function GameView(props: GameViewProps) {
       </AnimatePresence>
 
       {props.children}
+      </>
+      )}
 
       {/* ------------------------------------------------ board settings */}
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Board & display">

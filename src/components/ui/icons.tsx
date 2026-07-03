@@ -134,3 +134,16 @@ export const LockIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M8 11V8a4 4 0 0 1 8 0v3" />
   </svg>
 );
+export const EyeOffIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 4l16 16" />
+    <path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c5 0 8.5 4 9.5 7-.4 1.1-1.2 2.5-2.4 3.7M6.7 6.7C4.6 8 3.2 10 2.5 12c1 3 4.5 7 9.5 7 1.5 0 2.9-.36 4.1-.96" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+  </svg>
+);
+export const EyeIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M2.5 12C3.5 9 7 5 12 5s8.5 4 9.5 7c-1 3-4.5 7-9.5 7s-8.5-4-9.5-7z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
