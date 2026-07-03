@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { BrandLink, PageShell, SoundControl, ThemeToggle } from "@/components/PageShell";
@@ -10,6 +10,7 @@ import {
   getFavorites,
   getRecents,
   hasSearchProvider,
+  importLocalImage,
   isFavorite,
   pushRecent,
   randomImage,
@@ -23,6 +24,9 @@ import { sounds } from "@/services/sound/soundManager";
 
 type Tab = "browse" | "search" | "favorites" | "recents";
 
+/** Every remote provider serves 24 per page; a short page means it's the last. */
+const PAGE_SIZE = 24;
+
 export default function NewPuzzlePage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -31,16 +35,19 @@ export default function NewPuzzlePage() {
   const [tab, setTab] = useState<Tab>("browse");
   const [category, setCategory] = useState<string | undefined>(undefined);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [images, setImages] = useState<PuzzleImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PuzzleImage | null>(null);
   const [favTick, setFavTick] = useState(0);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [difficulty, setDifficulty] = useState<DifficultyId>("medium");
   const [config, setConfig] = useState<PuzzleConfig>(DEFAULT_CONFIG);
 
-  const load = useCallback(async (t: Tab, cat: string | undefined, q: string) => {
+  const load = useCallback(async (t: Tab, cat: string | undefined, q: string, pg: number) => {
     setError(null);
     if (t === "favorites") {
       setImages(getFavorites());
@@ -52,7 +59,8 @@ export default function NewPuzzlePage() {
     }
     setLoading(true);
     try {
-      const list = t === "search" && q.trim() ? await searchImages(q.trim()) : await browseImages(cat);
+      const list =
+        t === "search" && q.trim() ? await searchImages(q.trim(), pg) : await browseImages(cat, pg);
       setImages(list);
     } catch {
       setError("Couldn't load photos right now — check your connection and try again.");
@@ -63,9 +71,24 @@ export default function NewPuzzlePage() {
   }, []);
 
   useEffect(() => {
-    void load(tab, category, query);
+    void load(tab, category, query, page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, category]);
+  }, [tab, category, page]);
+
+  const uploadFile = async (file: File) => {
+    setImporting(true);
+    setError(null);
+    try {
+      const img = await importLocalImage(file);
+      setImages((cur) => [img, ...cur]);
+      setSelected(img);
+      sounds.play("pop");
+    } catch {
+      setError("Couldn't read that image — try a JPEG or PNG file.");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const applyPreset = (id: DifficultyId) => {
     setDifficulty(id);
@@ -79,7 +102,9 @@ export default function NewPuzzlePage() {
 
   const start = async () => {
     if (!selected) return;
-    pushRecent(selected);
+    // uploads are session-only data URLs — keep them out of the small
+    // localStorage recents list
+    if (selected.provider !== "upload") pushRecent(selected);
     sounds.play("pop");
     const seed = randomSeed();
     if (hosting) {
@@ -127,6 +152,20 @@ export default function NewPuzzlePage() {
               {hosting ? "Pick a photo for your room" : "Pick a photo"}
             </h1>
             <div className="ml-auto flex items-center gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void uploadFile(file);
+                }}
+              />
+              <Button size="sm" variant="secondary" disabled={importing} onClick={() => fileRef.current?.click()}>
+                {importing ? "Importing…" : "⬆ Upload photo"}
+              </Button>
               <Button size="sm" variant="secondary" onClick={surprise}>
                 🎲 Surprise me
               </Button>
@@ -138,14 +177,18 @@ export default function NewPuzzlePage() {
               ariaLabel="Image source"
               options={tabs.map((t) => ({ value: t.id, label: t.label }))}
               value={tab}
-              onChange={(t) => setTab(t)}
+              onChange={(t) => {
+                setTab(t);
+                setPage(1);
+              }}
             />
             {tab === "search" && (
               <form
                 className="flex flex-1 gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void load("search", category, query);
+                  setPage(1);
+                  void load("search", category, query, 1);
                 }}
               >
                 <input
@@ -172,13 +215,23 @@ export default function NewPuzzlePage() {
           )}
           {tab === "browse" && (
             <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-              <CategoryChip label="✨ All" active={!category} onClick={() => setCategory(undefined)} />
+              <CategoryChip
+                label="✨ All"
+                active={!category}
+                onClick={() => {
+                  setCategory(undefined);
+                  setPage(1);
+                }}
+              />
               {CATEGORIES.map((c) => (
                 <CategoryChip
                   key={c.id}
                   label={`${c.emoji} ${c.label}`}
                   active={category === c.id}
-                  onClick={() => setCategory(c.id)}
+                  onClick={() => {
+                    setCategory(c.id);
+                    setPage(1);
+                  }}
                 />
               ))}
             </div>
@@ -194,7 +247,7 @@ export default function NewPuzzlePage() {
               <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                 <span className="text-4xl">🌧️</span>
                 <p className="max-w-xs text-sm font-semibold text-secondary">{error}</p>
-                <Button size="sm" variant="secondary" onClick={() => void load(tab, category, query)}>
+                <Button size="sm" variant="secondary" onClick={() => void load(tab, category, query, page)}>
                   Try again
                 </Button>
               </div>
@@ -267,6 +320,30 @@ export default function NewPuzzlePage() {
               ))}
             </div>
           </div>
+
+          {(tab === "browse" || tab === "search") && !error && images.length > 0 && (
+            <div className="mt-4 flex items-center justify-center gap-3" role="navigation" aria-label="Photo pages">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={page === 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </Button>
+              <span className="min-w-16 text-center text-sm font-bold text-tertiary" aria-live="polite">
+                Page {page}
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={loading || images.length < PAGE_SIZE}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next →
+              </Button>
+            </div>
+          )}
         </motion.section>
 
         {/* ------------------------------------------------ configuration */}

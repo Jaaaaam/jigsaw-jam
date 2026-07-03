@@ -5,6 +5,7 @@ import type { PuzzleImage } from "./types";
 import { ProviderError } from "./types";
 
 export * from "./types";
+export * from "./upload";
 
 /** Preference order per the product spec: Pexels → Pixabay → Picsum. */
 const providers = [pexelsProvider, pixabayProvider, picsumProvider];
@@ -75,7 +76,11 @@ function readList(key: string): PuzzleImage[] {
 }
 
 function writeList(key: string, list: PuzzleImage[]): void {
-  localStorage.setItem(key, JSON.stringify(list.slice(0, 30)));
+  try {
+    localStorage.setItem(key, JSON.stringify(list.slice(0, 30)));
+  } catch {
+    /* quota exceeded — favorites/recents are best-effort */
+  }
 }
 
 export const getFavorites = (): PuzzleImage[] => readList("jj:favorites");
