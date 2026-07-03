@@ -78,6 +78,20 @@ describe("createGeometry", () => {
     expect(Math.max(...apexes) - Math.min(...apexes)).toBeGreaterThan(g.cellH * 0.05);
   });
 
+  test("portrait images swap the grid so cells stay near-square", () => {
+    // landscape preset (4x6) on a portrait 800x1200 photo → 6x4
+    const g = createGeometry(config, 1, 800, 1200);
+    expect(g.config.rows).toBe(6);
+    expect(g.config.cols).toBe(4);
+    expect(g.config.rows * g.config.cols).toBe(config.rows * config.cols);
+    // cells are square either way on these dimensions
+    expect(g.cellW / g.cellH).toBeCloseTo(1, 1);
+    // landscape photo keeps the preset orientation
+    const l = createGeometry(config, 1, 1200, 800);
+    expect(l.config.rows).toBe(4);
+    expect(l.config.cols).toBe(6);
+  });
+
   test("square shape has no curved edges", () => {
     const g = createGeometry({ ...config, shape: "square" }, 1, 1200, 800);
     for (const row of [...g.horizontal, ...g.vertical]) {

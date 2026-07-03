@@ -60,12 +60,28 @@ function mapEdge(
   }));
 }
 
+/**
+ * Orient the grid to the image: presets assume landscape (rows < cols), so a
+ * portrait photo would otherwise get tall skinny cells. Swap rows/cols when
+ * the swapped grid makes cells closer to square. Deterministic from config +
+ * image size, so every client and every save derives the same grid.
+ */
+function orientConfig(config: PuzzleConfig, width: number, height: number): PuzzleConfig {
+  // |log| of cell aspect (cellW/cellH) — 0 is a perfect square
+  const skew = (rows: number, cols: number) => Math.abs(Math.log((width * rows) / (height * cols)));
+  if (skew(config.cols, config.rows) < skew(config.rows, config.cols)) {
+    return { ...config, rows: config.cols, cols: config.rows };
+  }
+  return config;
+}
+
 export function createGeometry(
-  config: PuzzleConfig,
+  rawConfig: PuzzleConfig,
   seed: number,
   width: number,
   height: number,
 ): PuzzleGeometry {
+  const config = orientConfig(rawConfig, width, height);
   const { rows, cols, shape } = config;
   const rng = createRng(seed);
   const cellW = width / cols;
