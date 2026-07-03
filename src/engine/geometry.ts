@@ -17,11 +17,14 @@ interface UnitCubic {
 
 function unitTabCurve(rng: () => number): UnitCubic[] {
   // Per-edge cut personality — wide ranges so neighbouring cuts rarely twin up.
-  const t = range(rng, 0.08, 0.13); // tab half-width (neck size)
-  const bulb = range(rng, 2.6, 3.4); // bulb height, in units of t (was fixed 3)
-  const ear = range(rng, 1.6, 2.4); // bulb roundness / ear spread, in units of t (was fixed 2)
-  const b = range(rng, -0.08, 0.08); // tab centre shifted along the edge
-  const j = 0.035; // organic jitter
+  const t = range(rng, 0.07, 0.14); // tab half-width (neck size)
+  // Apex height sampled independently of the neck, so skinny-neck/big-head
+  // and wide-neck/stubby knobs both occur — like a real die-cut sheet.
+  const apex = range(rng, 0.26, 0.42); // bulb apex height, fraction of cell
+  const bulb = apex / t; // bulb height in units of t
+  const ear = range(rng, 1.35, 2.6); // bulb roundness / ear spread, in units of t
+  const b = range(rng, -0.09, 0.09); // tab centre shifted along the edge
+  const j = 0.04; // organic jitter
   const a = range(rng, -j, j);
   const c = range(rng, -j, j);
   const d = range(rng, -j, j);
@@ -127,7 +130,7 @@ export function createGeometry(
     height,
     cellW,
     cellH,
-    // Max tab extent is bulb·t + jitter ≈ 3.4·0.13 + 0.035 ≈ 0.48 of the
+    // Max tab extent is apex + jitter ≈ 0.42 + 0.04 = 0.46 of the
     // perpendicular cell size (control-point bound; the curve stays inside).
     margin: 0.48,
     horizontal,
@@ -162,9 +165,13 @@ function appendReversed(path: Path2D, edge: EdgePath, ox: number, oy: number): v
  * Callers position it with canvas transforms.
  */
 export function buildPiecePath(geom: PuzzleGeometry, row: number, col: number): Path2D {
-  const ox = col * geom.cellW;
-  const oy = row * geom.cellH;
   const path = new Path2D();
+  appendPieceOutline(path, geom, row, col, col * geom.cellW, row * geom.cellH);
+  return path;
+}
+
+/** Append one piece's closed outline as a subpath, offset by (ox, oy). */
+function appendPieceOutline(path: Path2D, geom: PuzzleGeometry, row: number, col: number, ox: number, oy: number): void {
   const top = geom.horizontal[row]![col]!;
   const right = geom.vertical[row]![col + 1]!;
   const bottom = geom.horizontal[row + 1]![col]!;
@@ -175,7 +182,82 @@ export function buildPiecePath(geom: PuzzleGeometry, row: number, col: number): 
   appendReversed(path, bottom, ox, oy);
   appendReversed(path, left, ox, oy);
   path.closePath();
+}
+
+export interface GridCell {
+  row: number;
+  col: number;
+}
+
+export interface ClusterEdges {
+  /** Outer boundary edges of the cluster — get the bevel and the cut line. */
+  boundary: EdgePath[];
+  /** Interior edges between member cells — get only a subtle seam. */
+  seams: EdgePath[];
+}
+
+/**
+ * Split a cluster's cell edges into outer boundary vs interior seams.
+ * An edge is a seam when the cells on both of its sides are members.
+ */
+export function classifyClusterEdges(geom: PuzzleGeometry, members: readonly GridCell[]): ClusterEdges {
+  const cols = geom.config.cols;
+  const has = new Set(members.map((m) => m.row * cols + m.col));
+  const inCluster = (r: number, c: number) => has.has(r * cols + c);
+  const boundary: EdgePath[] = [];
+  const seams: EdgePath[] = [];
+  for (const { row, col } of members) {
+    // top/left seams are claimed by the lower/right member, so each interior
+    // edge lands in `seams` exactly once
+    if (inCluster(row - 1, col)) seams.push(geom.horizontal[row]![col]!);
+    else boundary.push(geom.horizontal[row]![col]!);
+    if (inCluster(row, col - 1)) seams.push(geom.vertical[row]![col]!);
+    else boundary.push(geom.vertical[row]![col]!);
+    if (!inCluster(row + 1, col)) boundary.push(geom.horizontal[row + 1]![col]!);
+    if (!inCluster(row, col + 1)) boundary.push(geom.vertical[row]![col + 1]!);
+  }
+  return { boundary, seams };
+}
+
+export interface ClusterPaths {
+  /** Union silhouette of all member pieces — clip/fill/shadow. */
+  fill: Path2D;
+  /** Open segments along the outer boundary — bevel + cut line strokes. */
+  boundary: Path2D;
+  /** Open segments along interior joins — seam strokes. */
+  seams: Path2D;
+}
+
+function edgeSegments(edges: EdgePath[], ox: number, oy: number): Path2D {
+  const path = new Path2D();
+  for (const edge of edges) {
+    path.moveTo(edge.from.x - ox, edge.from.y - oy);
+    appendForward(path, edge, ox, oy);
+  }
   return path;
+}
+
+/**
+ * Cluster outline paths in cluster-local coordinates: (0,0) is the cell
+ * origin of (originRow, originCol). Member piece outlines share their border
+ * curves exactly, so a nonzero fill of the combined subpaths is the union.
+ */
+export function buildClusterPaths(
+  geom: PuzzleGeometry,
+  members: readonly GridCell[],
+  originRow: number,
+  originCol: number,
+): ClusterPaths {
+  const ox = originCol * geom.cellW;
+  const oy = originRow * geom.cellH;
+  const fill = new Path2D();
+  for (const m of members) appendPieceOutline(fill, geom, m.row, m.col, ox, oy);
+  const { boundary, seams } = classifyClusterEdges(geom, members);
+  return {
+    fill,
+    boundary: edgeSegments(boundary, ox, oy),
+    seams: edgeSegments(seams, ox, oy),
+  };
 }
 
 /** Sprite margins (tab overhang) in world units, per axis. */

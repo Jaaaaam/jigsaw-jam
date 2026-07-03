@@ -1,7 +1,13 @@
 import { createGeometry, spriteMargins } from "@/engine/geometry";
 import { applySnapshot, createPieces, neighborIds, scatterPositions, toSnapshot } from "@/engine/puzzle";
 import type { PieceSnapshot, PieceState, PuzzleConfig, PuzzleGeometry, Vec2 } from "@/engine/types";
-import { computeSpriteScale, renderPieceSprite, type PieceSprite } from "./sprites";
+import {
+  computeSpriteScale,
+  renderClusterSprite,
+  renderPieceSprite,
+  type ClusterSprite,
+  type PieceSprite,
+} from "./sprites";
 
 export interface ControllerEvents {
   onPickUp?: (pieceCount: number) => void;
@@ -58,6 +64,9 @@ export class GameController {
   readonly pieces: PieceState[];
   private groups = new Map<number, Set<number>>();
   private sprites: PieceSprite[] = [];
+  /** Baked merged sprites for snapped-together groups, keyed by groupId. */
+  private clusterSprites = new Map<number, { size: number; sprite: ClusterSprite }>();
+  private spriteScale = 1;
   private placedLayer: HTMLCanvasElement;
   private placedCtx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
@@ -166,6 +175,7 @@ export class GameController {
 
     // Sprites
     const spriteScale = computeSpriteScale(this.geom, this.pieces.length);
+    this.spriteScale = spriteScale;
     for (const p of this.pieces) {
       this.sprites.push(renderPieceSprite(this.geom, this.image, p.row, p.col, spriteScale));
     }
@@ -200,6 +210,7 @@ export class GameController {
 
   private rebuildGroups(): void {
     this.groups.clear();
+    this.clusterSprites.clear();
     for (const p of this.pieces) {
       let set = this.groups.get(p.groupId);
       if (!set) {
@@ -228,6 +239,19 @@ export class GameController {
       this.pieces[id]!.groupId = intoId;
     }
     this.groups.delete(fromId);
+    this.clusterSprites.delete(fromId);
+    this.clusterSprites.delete(intoId);
+  }
+
+  /** Lazily bake / rebake the merged sprite for a multi-piece group. */
+  private clusterSprite(groupId: number): ClusterSprite {
+    const members = this.groups.get(groupId)!;
+    const cached = this.clusterSprites.get(groupId);
+    if (cached && cached.size === members.size) return cached.sprite;
+    const cells = [...members].map((id) => this.pieces[id]!);
+    const sprite = renderClusterSprite(this.geom, this.image, cells, this.spriteScale, this.opts.placedSeam ?? 0.3);
+    this.clusterSprites.set(groupId, { size: members.size, sprite });
+    return sprite;
   }
 
   // ----------------------------------------------------------- viewport
@@ -339,8 +363,11 @@ export class GameController {
   setOptions(patch: Partial<ControllerOptions>): void {
     const prevSeam = this.opts.placedSeam;
     Object.assign(this.opts, patch);
-    // seam darkness is baked into the placed layer — redo it on change
-    if (patch.placedSeam !== undefined && patch.placedSeam !== prevSeam) this.bakeAllPlaced();
+    // seam darkness is baked into the placed layer and loose clusters — redo on change
+    if (patch.placedSeam !== undefined && patch.placedSeam !== prevSeam) {
+      this.bakeAllPlaced();
+      this.clusterSprites.clear();
+    }
     this.dirty = true;
   }
 
@@ -776,6 +803,7 @@ export class GameController {
       }, 150);
       // no onDrop here — the snap/join sound is the drop feedback
       for (const p of members) p.placed = true;
+      this.clusterSprites.delete(groupId); // placed groups render from the baked layer
       return;
     }
 
@@ -870,7 +898,7 @@ export class GameController {
     const seam = this.opts.placedSeam ?? 0.3;
     if (seam > 0) {
       const rim = Math.max(1.4, Math.min(this.geom.cellW, this.geom.cellH) * 0.02);
-      ctx.strokeStyle = `rgba(25,15,45,${(0.5 * seam).toFixed(3)})`;
+      ctx.strokeStyle = `rgba(35,24,18,${(0.5 * seam).toFixed(3)})`;
       ctx.lineWidth = rim * (0.35 + 0.55 * seam);
       ctx.stroke(sprite.path);
     }
@@ -992,7 +1020,10 @@ export class GameController {
     const cullPad = Math.max(this.geom.cellW, this.geom.cellH) * 2;
 
     const draggedGroup = this.drag?.groupId ?? -1;
-    const drawList: PieceState[] = [];
+    // Draw units: loose singles, and snapped-together groups as one merged
+    // cluster sprite — one bevel, one shadow, so joins read as one slab.
+    const seenGroups = new Set<number>();
+    const units: Array<{ z: number; ref: PieceState; cluster: PieceState[] | null }> = [];
     for (const p of this.pieces) {
       if (p.placed || this.stashedIds.has(p.id)) continue;
       if (
@@ -1003,13 +1034,23 @@ export class GameController {
       ) {
         continue;
       }
-      drawList.push(p);
+      if (this.groups.get(p.groupId)!.size > 1) {
+        if (seenGroups.has(p.groupId)) continue;
+        seenGroups.add(p.groupId);
+        const members = this.groupPieces(p.groupId);
+        let z = 0;
+        for (const m of members) z = Math.max(z, m.z);
+        units.push({ z, ref: members[0]!, cluster: members });
+      } else {
+        units.push({ z: p.z, ref: p, cluster: null });
+      }
     }
-    drawList.sort((a, b) => a.z - b.z);
+    units.sort((a, b) => a.z - b.z);
 
-    for (const p of drawList) {
-      const dragged = p.groupId === draggedGroup;
-      this.drawPiece(ctx, p, dragged);
+    for (const u of units) {
+      const dragged = u.ref.groupId === draggedGroup;
+      if (u.cluster) this.drawCluster(ctx, u.cluster, dragged);
+      else this.drawPiece(ctx, u.ref, dragged);
     }
 
     // Hint pulse
@@ -1066,7 +1107,7 @@ export class GameController {
     if (p.rot) ctx.rotate((p.rot * Math.PI) / 2);
     if (dragged) {
       ctx.scale(LIFT_SCALE, LIFT_SCALE);
-      ctx.shadowColor = "rgba(20,10,40,0.45)";
+      ctx.shadowColor = "rgba(25,18,14,0.4)";
       ctx.shadowBlur = 24 / this.scale;
       ctx.shadowOffsetY = 10 / this.scale;
     }
@@ -1106,6 +1147,68 @@ export class GameController {
       ctx.strokeStyle = "rgba(52,180,127,0.9)";
       ctx.lineWidth = 3 / this.scale;
       ctx.strokeRect(-cw / 2, -ch / 2, cw, ch);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Draw a snapped-together group as one rigid slab. The cluster sprite is
+   * laid out in unrotated cell space, so anchoring at any member's cell
+   * centre and applying the shared rotation lands every piece correctly.
+   */
+  private drawCluster(ctx: CanvasRenderingContext2D, members: PieceState[], dragged: boolean): void {
+    const ref = members[0]!;
+    const sprite = this.clusterSprite(ref.groupId);
+    const cw = this.geom.cellW;
+    const ch = this.geom.cellH;
+    const w = sprite.cellCols * cw + 2 * sprite.mx;
+    const h = sprite.cellRows * ch + 2 * sprite.my;
+    // ref's cell offset inside the cluster's unrotated layout
+    const offX = (ref.col - sprite.originCol) * cw;
+    const offY = (ref.row - sprite.originRow) * ch;
+    const x = -offX - cw / 2 - sprite.mx;
+    const y = -offY - ch / 2 - sprite.my;
+    ctx.save();
+    ctx.translate(ref.pos.x + cw / 2, ref.pos.y + ch / 2);
+    if (ref.rot) ctx.rotate((ref.rot * Math.PI) / 2);
+    if (dragged) {
+      ctx.scale(LIFT_SCALE, LIFT_SCALE);
+      ctx.shadowColor = "rgba(25,18,14,0.4)";
+      ctx.shadowBlur = 24 / this.scale;
+      ctx.shadowOffsetY = 10 / this.scale;
+    }
+    const rim = Math.min(cw, ch) * 0.02;
+    if (!dragged) {
+      // one soft union silhouette grounds the whole slab
+      ctx.drawImage(sprite.shadow, x + rim * 0.4, y + rim * 1.6, w, h);
+    }
+    ctx.drawImage(sprite.canvas, x, y, w, h);
+
+    // per-member overlays, in the cluster's unrotated cell space
+    const cellX = (m: PieceState) => x + sprite.mx + (m.col - sprite.originCol) * cw;
+    const cellY = (m: PieceState) => y + sprite.my + (m.row - sprite.originRow) * ch;
+    if (this.opts.edgeHighlight && !dragged) {
+      ctx.strokeStyle = "rgba(246,90,51,0.85)";
+      ctx.lineWidth = 3 / this.scale;
+      for (const m of members) {
+        if (m.isEdge) ctx.strokeRect(cellX(m), cellY(m), cw, ch);
+      }
+    }
+    for (const m of members) {
+      const lock = this.remoteLocks.get(m.id);
+      if (!lock) continue;
+      ctx.strokeStyle = lock.color;
+      ctx.lineWidth = 3.5 / this.scale;
+      ctx.globalAlpha = 0.9;
+      ctx.strokeRect(cellX(m) - sprite.mx * 0.4, cellY(m) - sprite.my * 0.4, cw + sprite.mx * 0.8, ch + sprite.my * 0.8);
+      ctx.globalAlpha = 1;
+    }
+    if (dragged && this.drag?.hovered && this.opts.snapGuide) {
+      ctx.shadowColor = "rgba(52,180,127,0.9)";
+      ctx.shadowBlur = 30 / this.scale;
+      ctx.strokeStyle = "rgba(52,180,127,0.9)";
+      ctx.lineWidth = 3 / this.scale;
+      ctx.strokeRect(x + sprite.mx, y + sprite.my, sprite.cellCols * cw, sprite.cellRows * ch);
     }
     ctx.restore();
   }

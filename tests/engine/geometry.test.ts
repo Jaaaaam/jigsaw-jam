@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createGeometry, spriteMargins } from "@/engine/geometry";
+import { classifyClusterEdges, createGeometry, spriteMargins } from "@/engine/geometry";
 import { DEFAULT_CONFIG, type PuzzleConfig } from "@/engine/types";
 
 const config: PuzzleConfig = { ...DEFAULT_CONFIG, rows: 4, cols: 6 };
@@ -90,6 +90,45 @@ describe("createGeometry", () => {
     const l = createGeometry(config, 1, 1200, 800);
     expect(l.config.rows).toBe(4);
     expect(l.config.cols).toBe(6);
+  });
+
+  test("cluster edges: two horizontal neighbours share one seam", () => {
+    const g = createGeometry(config, 1, 1200, 800);
+    // cells (1,1) and (1,2) joined side by side
+    const { boundary, seams } = classifyClusterEdges(g, [
+      { row: 1, col: 1 },
+      { row: 1, col: 2 },
+    ]);
+    expect(seams).toHaveLength(1);
+    // the seam is the vertical edge between col 1 and col 2
+    expect(seams[0]).toBe(g.vertical[1]![2]!);
+    // outer boundary: 2 tops + 2 bottoms + 1 left + 1 right
+    expect(boundary).toHaveLength(6);
+    expect(boundary).toContain(g.horizontal[1]![1]!);
+    expect(boundary).toContain(g.vertical[1]![1]!);
+    expect(boundary).toContain(g.vertical[1]![3]!);
+    expect(boundary).not.toContain(g.vertical[1]![2]!);
+  });
+
+  test("cluster edges: 2x2 block has four seams and eight boundary edges", () => {
+    const g = createGeometry(config, 1, 1200, 800);
+    const { boundary, seams } = classifyClusterEdges(g, [
+      { row: 1, col: 1 },
+      { row: 1, col: 2 },
+      { row: 2, col: 1 },
+      { row: 2, col: 2 },
+    ]);
+    expect(seams).toHaveLength(4);
+    expect(boundary).toHaveLength(8);
+    // no edge appears twice
+    expect(new Set([...boundary, ...seams]).size).toBe(12);
+  });
+
+  test("cluster edges: single piece is all boundary, no seams", () => {
+    const g = createGeometry(config, 1, 1200, 800);
+    const { boundary, seams } = classifyClusterEdges(g, [{ row: 0, col: 0 }]);
+    expect(seams).toHaveLength(0);
+    expect(boundary).toHaveLength(4);
   });
 
   test("square shape has no curved edges", () => {
