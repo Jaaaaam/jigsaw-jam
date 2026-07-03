@@ -8,7 +8,7 @@ import { sounds } from "@/services/sound/soundManager";
 import { formatElapsed, useGame } from "@/stores/gameStore";
 import { BOARD_COLORS, BOARD_TEXTURES, useSettings } from "@/stores/settingsStore";
 import { Button, IconButton } from "@/components/ui/Button";
-import { ColorPicker, Segmented, Spinner, Toggle } from "@/components/ui/controls";
+import { ColorPicker, Segmented, Slider, Spinner, Toggle } from "@/components/ui/controls";
 import { Modal } from "@/components/ui/Modal";
 import { Confetti } from "./Confetti";
 import { SoundControl, ThemeToggle } from "@/components/PageShell";
@@ -46,7 +46,7 @@ export function GameView(props: GameViewProps) {
   const [failed, setFailed] = useState(false);
 
   const game = useGame();
-  const { boardColor, setBoardColor, boardTexture, setBoardTexture } = useSettings();
+  const { boardColor, setBoardColor, boardTexture, setBoardTexture, placedSeam, setPlacedSeam } = useSettings();
   const [ghost, setGhost] = useState(false);
   const [edgeGlow, setEdgeGlow] = useState(false);
   const [snapGuide, setSnapGuide] = useState(true);
@@ -120,6 +120,7 @@ export function GameView(props: GameViewProps) {
             snapGuide: true,
             boardColor: useSettings.getState().boardColor,
             boardTexture: useSettings.getState().boardTexture,
+            placedSeam: useSettings.getState().placedSeam,
             rotationEnabled: p.config.rotationEnabled,
             // top bar (+ players bar in rooms) and bottom zoom bar overlay
             // the canvas — keep the initial fit clear of them
@@ -166,10 +167,10 @@ export function GameView(props: GameViewProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // board colour / texture follow settings
+  // board colour / texture / seam follow settings
   useEffect(() => {
-    controllerRef.current?.setOptions({ boardColor, boardTexture });
-  }, [boardColor, boardTexture, ready]);
+    controllerRef.current?.setOptions({ boardColor, boardTexture, placedSeam });
+  }, [boardColor, boardTexture, placedSeam, ready]);
 
   const togglePause = useCallback(() => {
     const next = !useGame.getState().paused;
@@ -447,6 +448,14 @@ export function GameView(props: GameViewProps) {
               onChange={setBoardTexture}
             />
           </div>
+          <Slider
+            label="Placed piece seams"
+            value={Math.round(placedSeam * 100)}
+            min={0}
+            max={100}
+            onChange={(v) => setPlacedSeam(v / 100)}
+            format={(v) => (v === 0 ? "Hidden" : v < 35 ? "Subtle" : v < 70 ? "Visible" : "Bold")}
+          />
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm font-bold text-secondary">Theme</span>
             <ThemeToggle />

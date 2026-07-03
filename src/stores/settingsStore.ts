@@ -38,6 +38,8 @@ interface SettingsState {
   soundPrefs: Partial<Record<SoundEventId, SoundEventPref>>;
   boardColor: string;
   boardTexture: BoardTexture["id"];
+  /** Seam darkness on placed pieces, 0 (invisible) to 1 (bold). */
+  placedSeam: number;
   playerName: string;
   reducedMotion: boolean;
   setTheme: (t: ThemeMode) => void;
@@ -45,6 +47,7 @@ interface SettingsState {
   setMuted: (m: boolean) => void;
   setBoardColor: (c: string) => void;
   setBoardTexture: (t: BoardTexture["id"]) => void;
+  setPlacedSeam: (s: number) => void;
   setPlayerName: (n: string) => void;
   setReducedMotion: (r: boolean) => void;
   setSoundEventEnabled: (id: SoundEventId, enabled: boolean) => void;
@@ -63,6 +66,7 @@ export const useSettings = create<SettingsState>()(
       soundPrefs: {},
       boardColor: "#3d2764",
       boardTexture: "none",
+      placedSeam: 0.3,
       playerName: "",
       reducedMotion:
         typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -71,6 +75,7 @@ export const useSettings = create<SettingsState>()(
       setMuted: (muted) => set({ muted }),
       setBoardColor: (boardColor) => set({ boardColor }),
       setBoardTexture: (boardTexture) => set({ boardTexture }),
+      setPlacedSeam: (placedSeam) => set({ placedSeam }),
       setPlayerName: (playerName) => set({ playerName }),
       setReducedMotion: (reducedMotion) => set({ reducedMotion }),
       setSoundEventEnabled: (id, enabled) =>

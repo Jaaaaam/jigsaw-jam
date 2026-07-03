@@ -30,6 +30,8 @@ export interface ControllerOptions {
   boardColor: string;
   boardTexture: BoardTextureId;
   rotationEnabled: boolean;
+  /** Seam darkness on placed pieces, 0 (invisible) to 1 (bold). */
+  placedSeam?: number;
   /** Screen-px bands covered by HUD chrome; fitToScene keeps pieces clear of them. */
   viewInsets?: { top: number; bottom: number };
 }
@@ -312,7 +314,10 @@ export class GameController {
   // ----------------------------------------------------------- options
 
   setOptions(patch: Partial<ControllerOptions>): void {
+    const prevSeam = this.opts.placedSeam;
     Object.assign(this.opts, patch);
+    // seam darkness is baked into the placed layer — redo it on change
+    if (patch.placedSeam !== undefined && patch.placedSeam !== prevSeam) this.bakeAllPlaced();
     this.dirty = true;
   }
 
@@ -799,10 +804,13 @@ export class GameController {
     ctx.setTransform(s, 0, 0, s, p.correct.x * s, p.correct.y * s);
     ctx.clip(sprite.path);
     ctx.drawImage(this.image, -p.correct.x, -p.correct.y);
-    const rim = Math.max(1.4, Math.min(this.geom.cellW, this.geom.cellH) * 0.02);
-    ctx.strokeStyle = "rgba(25,15,45,0.14)";
-    ctx.lineWidth = rim * 0.6;
-    ctx.stroke(sprite.path);
+    const seam = this.opts.placedSeam ?? 0.3;
+    if (seam > 0) {
+      const rim = Math.max(1.4, Math.min(this.geom.cellW, this.geom.cellH) * 0.02);
+      ctx.strokeStyle = `rgba(25,15,45,${(0.5 * seam).toFixed(3)})`;
+      ctx.lineWidth = rim * (0.35 + 0.55 * seam);
+      ctx.stroke(sprite.path);
+    }
     ctx.restore();
   }
 
