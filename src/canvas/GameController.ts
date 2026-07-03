@@ -348,21 +348,17 @@ export class GameController {
   arrange(): void {
     const loose = this.pieces.filter((p) => !p.placed && !this.stashedIds.has(p.id));
     const spots = scatterPositions(this.geom, 42, this.pieces.length);
-    // deterministic tidy: sorted spots left-to-right, top-to-bottom
+    // tidy slots read left-to-right, top-to-bottom…
     const sorted = [...spots].sort((a, b) => a.y - b.y || a.x - b.x);
-    const byGroup = new Map<number, PieceState[]>();
-    for (const p of loose) {
-      const arr = byGroup.get(p.groupId) ?? [];
-      arr.push(p);
-      byGroup.set(p.groupId, arr);
-    }
-    let i = 0;
-    for (const [, members] of byGroup) {
-      if (members.length > 1) continue; // leave assembled clusters alone
-      const p = members[0]!;
-      const spot = sorted[i++ % sorted.length]!;
+    const singles = loose.filter((p) => this.groups.get(p.groupId)!.size === 1);
+    // …and pieces keep their current arrangement: each single goes to the
+    // slot matching its present reading order, so tidy straightens the mess
+    // instead of resetting every shuffle back to one canonical layout.
+    singles.sort((a, b) => a.pos.y - b.pos.y || a.pos.x - b.pos.x);
+    singles.forEach((p, i) => {
+      const spot = sorted[i % sorted.length]!;
       this.animatePiece(p, spot.x, spot.y, 380);
-    }
+    });
     this.dirty = true;
   }
 
