@@ -127,12 +127,43 @@ export default function HomePage() {
         )}
       </motion.section>
 
-      <footer className="pb-2 text-center text-xs font-semibold text-tertiary">
-        Photos by{" "}
-        <Link to="/new" className="underline decoration-dotted">
-          Pexels, Pixabay &amp; Picsum
-        </Link>{" "}
-        artists · Made for slow evenings
+      <footer className="space-y-1.5 pb-2 text-center text-xs font-semibold text-tertiary">
+        <p>
+          Photos by{" "}
+          <Link to="/new" className="underline decoration-dotted">
+            Pexels, Pixabay &amp; Picsum
+          </Link>{" "}
+          artists · Made for slow evenings
+        </p>
+        <p>
+          Crafted by{" "}
+          <a
+            href="https://jam-silvestre.vercel.app/"
+            target="_blank"
+            rel="noreferrer"
+            className="font-extrabold text-secondary underline decoration-dotted transition-colors hover:text-coral-500"
+          >
+            Patricia Jamille Silvestre
+          </a>
+          <span className="mx-1.5">·</span>
+          <a
+            href="https://www.linkedin.com/in/patricia-jamille-silvestre-7a5963100/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-dotted transition-colors hover:text-coral-500"
+          >
+            LinkedIn
+          </a>
+          <span className="mx-1.5">·</span>
+          <a
+            href="https://github.com/Jaaaaam"
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-dotted transition-colors hover:text-coral-500"
+          >
+            GitHub
+          </a>
+        </p>
       </footer>
     </PageShell>
   );
