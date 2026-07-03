@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { GameController } from "@/canvas/GameController";
 import { IconButton } from "@/components/ui/Button";
-import { ChatIcon, SendIcon } from "@/components/ui/icons";
+import { ChatIcon, CloseIcon, SendIcon } from "@/components/ui/icons";
 import { sounds } from "@/services/sound/soundManager";
 
 export interface RoomPlayer {
@@ -171,9 +171,19 @@ export function ChatPanel({ messages, mySessionId, onSend }: {
 
   return (
     <>
-      <div className="absolute right-3 bottom-1/2 z-20 translate-y-1/2">
+      {/* z-30 + slide left while open: the panel spans this edge and would
+          otherwise sit on top of its own toggle, making chat impossible to hide */}
+      <div
+        className={`absolute bottom-1/2 z-30 translate-y-1/2 transition-[right] duration-300 ${
+          open ? "right-[19.5rem]" : "right-3"
+        }`}
+      >
         <div className="relative">
-          <IconButton label="Chat" active={open} onClick={() => { setOpen(!open); setUnread(0); }}>
+          <IconButton
+            label={open ? "Hide chat" : "Show chat"}
+            active={open}
+            onClick={() => { setOpen(!open); setUnread(0); }}
+          >
             <ChatIcon />
           </IconButton>
           {unread > 0 && (
@@ -198,6 +208,16 @@ export function ChatPanel({ messages, mySessionId, onSend }: {
             className="glass-strong absolute top-24 right-3 bottom-24 z-20 flex w-72 flex-col rounded-3xl p-3 shadow-float"
             aria-label="Room chat"
           >
+            <div className="mb-1 flex items-center justify-between px-1 pt-0.5">
+              <span className="text-xs font-extrabold tracking-wide text-tertiary uppercase">Chat</span>
+              <button
+                aria-label="Hide chat"
+                className="cursor-pointer rounded-lg p-1 text-tertiary hover:bg-black/5 hover:text-primary dark:hover:bg-white/10"
+                onClick={() => { setOpen(false); sounds.play("click"); }}
+              >
+                <CloseIcon width={16} height={16} />
+              </button>
+            </div>
             <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto pr-1">
               {messages.length === 0 && (
                 <p className="mt-8 text-center text-xs font-semibold text-tertiary">
