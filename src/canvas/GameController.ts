@@ -623,10 +623,42 @@ export class GameController {
   private isNearTarget(members: PieceState[]): boolean {
     const tol = this.snapDistance();
     for (const p of members) {
-      if (p.rot !== 0) return false;
+      if (p.rot !== 0) continue;
       if (Math.hypot(p.pos.x - p.correct.x, p.pos.y - p.correct.y) < tol) return true;
     }
-    return false;
+    // joining loose neighbours counts too — snapping works away from the board
+    return this.findNeighborJoin(members) !== null;
+  }
+
+  /**
+   * Find a loose neighbouring piece the dragged group can join, anywhere on
+   * the table. Slightly more forgiving than board snap: without the pocket
+   * to aim at, players line pieces up by eye against overhanging tabs.
+   */
+  private findNeighborJoin(
+    members: PieceState[],
+  ): { neighbor: PieceState; piece: PieceState; errX: number; errY: number } | null {
+    const tol = this.snapDistance() * 1.3;
+    const memberIds = new Set(members.map((m) => m.id));
+    for (const p of members) {
+      for (const nId of neighborIds(this.geom, p)) {
+        const n = this.pieces[nId]!;
+        if (memberIds.has(n.id) || n.placed) continue;
+        if (n.rot !== p.rot) continue;
+        // expected offset between cell origins, rotated by the shared rotation
+        let dx = n.correct.x - p.correct.x;
+        let dy = n.correct.y - p.correct.y;
+        for (let i = 0; i < p.rot; i++) {
+          const t = dx;
+          dx = -dy;
+          dy = t;
+        }
+        const errX = n.pos.x - p.pos.x - dx;
+        const errY = n.pos.y - p.pos.y - dy;
+        if (Math.hypot(errX, errY) < tol) return { neighbor: n, piece: p, errX, errY };
+      }
+    }
+    return null;
   }
 
   private settleGroup(groupId: number): void {
@@ -680,34 +712,14 @@ export class GameController {
   }
 
   private tryNeighborMerge(members: PieceState[]): boolean {
-    const tol = this.snapDistance();
-    const memberIds = new Set(members.map((m) => m.id));
-    for (const p of members) {
-      for (const nId of neighborIds(this.geom, p)) {
-        const n = this.pieces[nId]!;
-        if (memberIds.has(n.id) || n.placed) continue;
-        if (n.rot !== p.rot) continue;
-        // expected offset between cell origins, rotated by the shared rotation
-        let dx = n.correct.x - p.correct.x;
-        let dy = n.correct.y - p.correct.y;
-        for (let i = 0; i < p.rot; i++) {
-          const t = dx;
-          dx = -dy;
-          dy = t;
-        }
-        const errX = n.pos.x - p.pos.x - dx;
-        const errY = n.pos.y - p.pos.y - dy;
-        if (Math.hypot(errX, errY) < tol) {
-          // move the dragged members onto the neighbour's group
-          for (const m of members) {
-            this.animatePiece(m, m.pos.x + errX, m.pos.y + errY, 120);
-          }
-          this.mergeGroups(n.groupId, p.groupId);
-          return true;
-        }
-      }
+    const join = this.findNeighborJoin(members);
+    if (!join) return false;
+    // move the dragged members onto the neighbour's group
+    for (const m of members) {
+      this.animatePiece(m, m.pos.x + join.errX, m.pos.y + join.errY, 120);
     }
-    return false;
+    this.mergeGroups(join.neighbor.groupId, join.piece.groupId);
+    return true;
   }
 
   private checkComplete(fromLocal: boolean): void {
