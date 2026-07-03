@@ -581,8 +581,9 @@ export class GameController {
         p.pos.x = world.x + off.x;
         p.pos.y = world.y + off.y;
       }
-      // near-target glow + one-shot hover cue
-      const near = this.isNearTarget(members);
+      // near-target glow + one-shot hover cue — all snap-guide feedback,
+      // so the toggle silences the sound too, not just the drawing
+      const near = this.opts.snapGuide && this.isNearTarget(members);
       if (near && !this.drag.hovered) {
         this.drag.hovered = true;
         this.events.onHoverTarget?.();
