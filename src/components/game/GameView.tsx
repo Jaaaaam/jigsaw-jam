@@ -183,6 +183,13 @@ export function GameView(props: GameViewProps) {
     else void document.documentElement.requestFullscreen();
   }, []);
 
+  const toggleViewLock = useCallback(() => {
+    setViewLocked((locked) => {
+      if (controllerRef.current) controllerRef.current.viewLocked = !locked;
+      return !locked;
+    });
+  }, []);
+
   const pct = game.totalPieces ? Math.round((game.placedPieces / game.totalPieces) * 100) : 0;
 
   return (
@@ -335,15 +342,7 @@ export function GameView(props: GameViewProps) {
               <ToolRow icon={<TidyIcon />} label="Tidy pieces" onClick={() => { controllerRef.current?.arrange(); sounds.play("whoosh"); }} />
               <ToolRow icon={<ShuffleIcon />} label="Shuffle" onClick={() => { controllerRef.current?.shuffle(); sounds.play("whoosh"); }} />
               <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
-              <ToolRow
-                icon={<LockIcon />}
-                label="Lock view"
-                toggled={viewLocked}
-                onClick={() => {
-                  setViewLocked(!viewLocked);
-                  if (controllerRef.current) controllerRef.current.viewLocked = !viewLocked;
-                }}
-              />
+              <ToolRow icon={<LockIcon />} label="Lock view" toggled={viewLocked} onClick={toggleViewLock} />
               <ToolRow icon={<EyeOffIcon />} label="Hide interface" onClick={() => setUiHidden(true)} />
               <ToolRow icon={<GearIcon />} label="Settings" onClick={() => setSettingsOpen(true)} />
             </motion.nav>
@@ -384,6 +383,17 @@ export function GameView(props: GameViewProps) {
         </ZoomButton>
         <ZoomButton label="Toggle fullscreen" onClick={toggleFullscreen} text="Full screen">
           <FullscreenIcon width={17} height={17} />
+        </ZoomButton>
+        <div className="mx-0.5 h-6 border-l border-black/10 dark:border-white/10" />
+        {/* pan/zoom lock lives here, always visible — accidental canvas
+            drags are common enough that it shouldn't hide in the tools panel */}
+        <ZoomButton
+          label={viewLocked ? "Unlock view (allow pan and zoom)" : "Lock view (prevent pan and zoom)"}
+          onClick={toggleViewLock}
+          text={viewLocked ? "Locked" : "Lock view"}
+          active={viewLocked}
+        >
+          <LockIcon width={17} height={17} />
         </ZoomButton>
       </motion.div>
 
@@ -578,9 +588,11 @@ function ToolRow({ icon, label, toggled, onClick }: ToolRowProps) {
   );
 }
 
-function ZoomButton({ label, text, onClick, children }: {
+function ZoomButton({ label, text, active, onClick, children }: {
   label: string;
   text?: string;
+  /** Present = this is a toggle; highlights strongly while on. */
+  active?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -588,8 +600,13 @@ function ZoomButton({ label, text, onClick, children }: {
     <motion.button
       whileTap={{ scale: 0.94 }}
       aria-label={label}
+      aria-pressed={active}
       title={label}
-      className="flex h-9 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 text-sm font-bold text-secondary transition-colors hover:bg-black/5 hover:text-primary dark:hover:bg-white/10"
+      className={`flex h-9 cursor-pointer items-center gap-1.5 rounded-xl px-2.5 text-sm font-bold transition-colors ${
+        active
+          ? "bg-coral-500 text-white shadow-press"
+          : "text-secondary hover:bg-black/5 hover:text-primary dark:hover:bg-white/10"
+      }`}
       onClick={() => {
         sounds.play("click");
         onClick();
