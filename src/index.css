@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: "Nunito", "Quicksand", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --font-sans: "Nunito", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+
+  /* Cozy light palette */
+  --color-cream-50: #fdfbf7;
+  --color-cream-100: #f8f4ec;
+  --color-cream-200: #f1eadd;
+
+  --color-lav-50: #f6f1ff;
+  --color-lav-100: #ece2fd;
+  --color-lav-200: #d9c8f8;
+  --color-lav-300: #bfa5ef;
+  --color-lav-400: #a181e0;
+  --color-lav-500: #8461c9;
+  --color-lav-600: #6a49aa;
+  --color-lav-700: #533787;
+  --color-lav-800: #3d2764;
+  --color-lav-900: #2a1a47;
+  --color-lav-950: #1a0f2e;
+
+  --color-coral-50: #fff3f0;
+  --color-coral-100: #ffe2da;
+  --color-coral-200: #ffc3b3;
+  --color-coral-300: #ff9d84;
+  --color-coral-400: #ff7a58;
+  --color-coral-500: #f65a33;
+  --color-coral-600: #dd4420;
+  --color-coral-700: #b53318;
+
+  --color-mint-100: #d9f5e8;
+  --color-mint-300: #7fdcb2;
+  --color-mint-500: #34b47f;
+  --color-mint-700: #1d7d56;
+
+  --color-sun-100: #fdf0cf;
+  --color-sun-300: #f8d576;
+  --color-sun-500: #eeb32b;
+
+  --color-ink-50: #f4f2f8;
+  --color-ink-400: #8b83a0;
+  --color-ink-600: #5c536f;
+  --color-ink-800: #332b47;
+  --color-ink-900: #221b33;
+
+  --shadow-soft: 0 2px 8px rgb(42 26 71 / 0.06), 0 12px 32px rgb(42 26 71 / 0.10);
+  --shadow-float: 0 4px 12px rgb(42 26 71 / 0.08), 0 24px 64px rgb(42 26 71 / 0.16);
+  --shadow-press: 0 1px 3px rgb(42 26 71 / 0.10);
+
+  --radius-4xl: 2rem;
+
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-drift: drift 24s ease-in-out infinite alternate;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes drift {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(6vw, -4vh) scale(1.15); }
+  }
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+}
+
+:root {
+  color-scheme: light;
+  --app-bg: linear-gradient(160deg, #f6f1ff 0%, #fdf6ec 45%, #eef7f2 100%);
+  --panel-bg: rgb(255 255 255 / 0.72);
+  --panel-border: rgb(255 255 255 / 0.85);
+  --panel-strong-bg: rgb(255 255 255 / 0.92);
+  --text-primary: var(--color-ink-900);
+  --text-secondary: var(--color-ink-600);
+  --text-tertiary: var(--color-ink-400);
+}
+
+.dark {
+  color-scheme: dark;
+  --app-bg: linear-gradient(160deg, #1a0f2e 0%, #221b33 55%, #14202a 100%);
+  --panel-bg: rgb(42 30 68 / 0.62);
+  --panel-border: rgb(255 255 255 / 0.10);
+  --panel-strong-bg: rgb(38 28 60 / 0.92);
+  --text-primary: #f3eefc;
+  --text-secondary: #bfb3d6;
+  --text-tertiary: #8b7fa8;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--app-bg);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+
+/* Glass panel primitives */
+.glass {
+  background: var(--panel-bg);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid var(--panel-border);
+}
+.glass-strong {
+  background: var(--panel-strong-bg);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--panel-border);
+}
+
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+
+/* Focus rings — keyboard accessible everywhere */
+:focus-visible {
+  outline: 3px solid var(--color-coral-400);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Custom slider styling */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgb(132 97 201 / 0.25);
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: white;
+  border: 3px solid var(--color-lav-500);
+  box-shadow: var(--shadow-press);
+  transition: transform 120ms ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: white;
+  border: 3px solid var(--color-lav-500);
+}
+
+/* Scrollbars that match the vibe */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(132 97 201 / 0.35) transparent;
+}
+
+canvas {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
