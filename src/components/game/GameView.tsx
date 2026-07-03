@@ -32,8 +32,12 @@ export interface GameViewProps {
   /** Called after local piece drops — solo autosave hook. */
   onDirty?: (c: GameController) => void;
   onRestart?: () => void;
-  /** Overlays (live cursors, chat, players) rendered above the canvas. */
+  /** Overlays (live cursors, chat) rendered above the canvas. */
   children?: ReactNode;
+  /** Inline content for the top bar (room code, players) — multiplayer. */
+  topBarExtra?: ReactNode;
+  /** Shared room: hides tools that would stomp other players' work (shuffle). */
+  multiplayer?: boolean;
   completionExtra?: ReactNode;
   canPause?: boolean;
 }
@@ -125,8 +129,8 @@ export function GameView(props: GameViewProps) {
             boardTexture: useSettings.getState().boardTexture,
             placedSeam: useSettings.getState().placedSeam,
             rotationEnabled: p.config.rotationEnabled,
-            // top bar (+ players bar in rooms) and bottom zoom bar overlay
-            // the canvas — keep the initial fit clear of them
+            // top bar and bottom zoom bar overlay the canvas — keep the
+            // initial fit clear of them
             viewInsets: { top: 96, bottom: 76 },
           },
           snapshots: p.initialSnapshots,
@@ -260,7 +264,9 @@ export function GameView(props: GameViewProps) {
         initial={{ y: -60, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 28, delay: 0.1 }}
-        className="absolute top-3 left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-3xl -translate-x-1/2 items-center gap-2 sm:gap-3"
+        className={`absolute top-3 left-1/2 z-20 flex w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 sm:gap-3 ${
+          props.topBarExtra ? "max-w-4xl" : "max-w-3xl"
+        }`}
       >
         <IconButton label="Back to menu" onClick={() => navigate("/")}>
           <ArrowLeftIcon />
@@ -277,7 +283,13 @@ export function GameView(props: GameViewProps) {
               </p>
             )}
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex min-w-0 items-center gap-1.5">
+            {props.topBarExtra && (
+              <>
+                {props.topBarExtra}
+                <div className="mx-1 hidden h-6 border-l border-black/10 sm:block dark:border-white/10" />
+              </>
+            )}
             {props.canPause !== false && (
               <IconButton label={game.paused ? "Resume" : "Pause"} onClick={togglePause}>
                 {game.paused ? <PlayIcon /> : <PauseIcon />}
@@ -356,8 +368,14 @@ export function GameView(props: GameViewProps) {
               />
               <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
               <ToolRow icon={<BulbIcon />} label="Hint" onClick={() => { controllerRef.current?.hint(); sounds.play("pop"); }} />
-              <ToolRow icon={<TidyIcon />} label="Tidy pieces" onClick={() => { controllerRef.current?.arrange(); sounds.play("whoosh"); }} />
-              <ToolRow icon={<ShuffleIcon />} label="Shuffle" onClick={() => { controllerRef.current?.shuffle(); sounds.play("whoosh"); }} />
+              {/* no bulk re-arranging with friends — moving everyone's sorted
+                  pieces from under them is a rotten surprise */}
+              {!props.multiplayer && (
+                <>
+                  <ToolRow icon={<TidyIcon />} label="Tidy pieces" onClick={() => { controllerRef.current?.arrange(); sounds.play("whoosh"); }} />
+                  <ToolRow icon={<ShuffleIcon />} label="Shuffle" onClick={() => { controllerRef.current?.shuffle(); sounds.play("whoosh"); }} />
+                </>
+              )}
               <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
               <ToolRow icon={<LockIcon />} label="Lock view" toggled={viewLocked} onClick={toggleViewLock} />
               <ToolRow icon={<EyeOffIcon />} label="Hide interface" onClick={() => setUiHidden(true)} />
@@ -414,7 +432,13 @@ export function GameView(props: GameViewProps) {
         </ZoomButton>
       </motion.div>
 
+      {props.children}
+      </>
+      )}
+
       {/* ------------------------------------------------ preview panel */}
+      {/* lives outside the hideable UI: the reference photo (and its
+          toggle below) stay reachable even with the interface hidden */}
       <AnimatePresence>
         {previewOpen && ready && (
           <motion.div
@@ -423,7 +447,7 @@ export function GameView(props: GameViewProps) {
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.85 }}
-            className="glass-strong absolute right-4 bottom-4 z-20 cursor-grab rounded-3xl p-3 shadow-float active:cursor-grabbing"
+            className="glass-strong absolute right-4 bottom-20 z-20 cursor-grab rounded-3xl p-3 shadow-float active:cursor-grabbing"
           >
             <img
               src={props.thumbUrl ?? props.imageUrl}
@@ -446,9 +470,24 @@ export function GameView(props: GameViewProps) {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {props.children}
-      </>
+      {ready && (
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          whileTap={{ scale: 0.94 }}
+          aria-label={previewOpen ? "Hide picture preview" : "Show picture preview"}
+          aria-pressed={previewOpen}
+          title={previewOpen ? "Hide picture preview" : "Show picture preview"}
+          className={`glass absolute right-3 bottom-4 z-20 flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl shadow-soft transition-opacity ${
+            previewOpen ? "text-coral-500" : "text-secondary"
+          } ${uiHidden ? "opacity-60 hover:opacity-100" : ""}`}
+          onClick={() => {
+            sounds.play("click");
+            setPreviewOpen((o) => !o);
+          }}
+        >
+          <ImageIcon />
+        </motion.button>
       )}
 
       {/* ------------------------------------------------ board settings */}

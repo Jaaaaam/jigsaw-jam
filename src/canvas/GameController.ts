@@ -405,22 +405,29 @@ export class GameController {
       this.viewAspect(),
     );
     let i = 0;
+    const moved: PieceSnapshot[] = [];
     for (const p of this.pieces) {
-      if (p.placed) continue;
+      // leave pieces another player is holding alone — fighting their drag
+      // would desync; the claim TTL frees them soon enough
+      if (p.placed || this.remoteLocks.has(p.id)) continue;
       const spot = spots[i++ % spots.length]!;
       this.animatePiece(p, spot.x, spot.y, 420);
-    }
-    // shuffling breaks apart unplaced groups — classic reshuffle behaviour
-    for (const p of this.pieces) {
-      if (!p.placed) p.groupId = p.id;
+      // shuffling breaks apart unplaced groups — classic reshuffle behaviour
+      p.groupId = p.id;
+      // sync the resting spot, not the mid-tween position
+      moved.push({ id: p.id, x: spot.x, y: spot.y, rot: p.rot, groupId: p.groupId, placed: false, z: p.z });
     }
     this.rebuildGroups();
+    // persist to the room — otherwise the next remote echo reverts the shuffle
+    if (moved.length) this.events.onRelease?.(moved);
     this.dirty = true;
   }
 
   /** Tidy unplaced singles into the tray band around the board. */
   arrange(): void {
-    const loose = this.pieces.filter((p) => !p.placed && !this.stashedIds.has(p.id));
+    const loose = this.pieces.filter(
+      (p) => !p.placed && !this.stashedIds.has(p.id) && !this.remoteLocks.has(p.id),
+    );
     const spots = scatterPositions(this.geom, 42, this.pieces.length, this.viewAspect());
     // tidy slots read left-to-right, top-to-bottom…
     const sorted = [...spots].sort((a, b) => a.y - b.y || a.x - b.x);
@@ -429,10 +436,14 @@ export class GameController {
     // slot matching its present reading order, so tidy straightens the mess
     // instead of resetting every shuffle back to one canonical layout.
     singles.sort((a, b) => a.pos.y - b.pos.y || a.pos.x - b.pos.x);
+    const moved: PieceSnapshot[] = [];
     singles.forEach((p, i) => {
       const spot = sorted[i % sorted.length]!;
       this.animatePiece(p, spot.x, spot.y, 380);
+      moved.push({ id: p.id, x: spot.x, y: spot.y, rot: p.rot, groupId: p.groupId, placed: false, z: p.z });
     });
+    // persist to the room — otherwise the next remote echo reverts the tidy
+    if (moved.length) this.events.onRelease?.(moved);
     this.dirty = true;
   }
 
@@ -1194,13 +1205,19 @@ export class GameController {
         if (m.isEdge) ctx.strokeRect(cellX(m), cellY(m), cw, ch);
       }
     }
-    for (const m of members) {
-      const lock = this.remoteLocks.get(m.id);
-      if (!lock) continue;
+    // one outline around the whole blob — claims are all-or-nothing per
+    // group, so per-piece rectangles would just draw a weird grid
+    const lock = members.map((m) => this.remoteLocks.get(m.id)).find(Boolean);
+    if (lock) {
       ctx.strokeStyle = lock.color;
       ctx.lineWidth = 3.5 / this.scale;
       ctx.globalAlpha = 0.9;
-      ctx.strokeRect(cellX(m) - sprite.mx * 0.4, cellY(m) - sprite.my * 0.4, cw + sprite.mx * 0.8, ch + sprite.my * 0.8);
+      ctx.strokeRect(
+        x + sprite.mx * 0.6,
+        y + sprite.my * 0.6,
+        sprite.cellCols * cw + sprite.mx * 0.8,
+        sprite.cellRows * ch + sprite.my * 0.8,
+      );
       ctx.globalAlpha = 1;
     }
     if (dragged && this.drag?.hovered && this.opts.snapGuide) {

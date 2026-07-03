@@ -335,6 +335,10 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
         setController(null);
       }}
       onRestart={isHost ? onRestart : undefined}
+      multiplayer
+      topBarExtra={
+        <PlayersBar players={players} hostSessionId={room.hostSessionId} mySessionId={sessionId} code={room.code} />
+      }
       completionExtra={
         <div className="glass rounded-2xl p-3 text-left">
           <p className="mb-2 text-xs font-extrabold tracking-wide text-tertiary uppercase">Team effort</p>
@@ -348,7 +352,6 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
         </div>
       }
     >
-      <PlayersBar players={players} hostSessionId={room.hostSessionId} mySessionId={sessionId} code={room.code} />
       <CursorsOverlay players={players} mySessionId={sessionId} controller={controller} />
       <ChatPanel
         messages={messages}

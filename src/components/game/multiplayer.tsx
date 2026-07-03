@@ -27,6 +27,7 @@ export interface RoomMessage {
 
 // ------------------------------------------------------------------ players
 
+/** Inline players + room-code cluster for the game top bar. */
 export function PlayersBar({ players, hostSessionId, mySessionId, code }: {
   players: RoomPlayer[];
   hostSessionId: string;
@@ -35,36 +36,39 @@ export function PlayersBar({ players, hostSessionId, mySessionId, code }: {
 }) {
   const [copied, setCopied] = useState(false);
   const online = [...players].sort((a, b) => Number(b.online) - Number(a.online) || b.piecesPlaced - a.piecesPlaced);
+  const onlineCount = online.filter((p) => p.online).length;
+  const shown = online.slice(0, 5);
+  const overflow = online.length - shown.length;
   return (
-    <motion.div
-      initial={{ y: -40, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ delay: 0.3, type: "spring", stiffness: 300, damping: 26 }}
-      className="glass absolute top-[4.6rem] left-1/2 z-20 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-2xl px-3 py-1.5 shadow-soft"
-    >
-      <div className="flex -space-x-1.5">
-        {online.slice(0, 8).map((p) => (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="flex shrink-0 -space-x-1.5" title={`${onlineCount} online`}>
+        {shown.map((p) => (
           <div key={p.sessionId} className="relative" title={`${p.name} · ${p.piecesPlaced} placed`}>
             <div
-              className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-xs font-black text-white dark:border-lav-900 ${p.online ? "" : "opacity-40 grayscale"}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-white text-[11px] font-black text-white dark:border-lav-900 ${p.online ? "" : "opacity-40 grayscale"}`}
               style={{ background: p.color }}
             >
               {p.name.charAt(0).toUpperCase()}
             </div>
             {p.sessionId === hostSessionId && (
-              <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[10px]" title="Host">👑</span>
+              <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[9px]" title="Host">👑</span>
             )}
             {p.online && (
-              <span className="absolute right-0 bottom-0 h-2.5 w-2.5 rounded-full border border-white bg-mint-500" />
+              <span className="absolute right-0 bottom-0 h-2 w-2 rounded-full border border-white bg-mint-500" />
             )}
           </div>
         ))}
+        {overflow > 0 && (
+          <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-black/10 text-[10px] font-black text-secondary dark:border-lav-900 dark:bg-white/15">
+            +{overflow}
+          </div>
+        )}
       </div>
-      <span className="text-xs font-bold text-tertiary">
-        {online.filter((p) => p.online).length} online
+      <span className="hidden text-xs font-bold whitespace-nowrap text-tertiary md:inline">
+        {onlineCount} online
       </span>
       <button
-        className="glass ml-1 cursor-pointer rounded-xl px-2.5 py-1 font-mono text-xs font-black tracking-widest text-primary hover:bg-white/80 dark:hover:bg-white/10"
+        className="glass shrink-0 cursor-pointer rounded-xl px-2.5 py-1 font-mono text-xs font-black tracking-widest text-primary hover:bg-white/80 dark:hover:bg-white/10"
         title="Copy invite code"
         onClick={() => {
           void navigator.clipboard.writeText(code);
@@ -78,7 +82,7 @@ export function PlayersBar({ players, hostSessionId, mySessionId, code }: {
       <span className="sr-only">
         Players: {online.map((p) => `${p.name}${p.sessionId === mySessionId ? " (you)" : ""}`).join(", ")}
       </span>
-    </motion.div>
+    </div>
   );
 }
 
