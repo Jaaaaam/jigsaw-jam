@@ -1,0 +1,366 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { GameController } from "@/canvas/GameController";
+import { GameView } from "@/components/game/GameView";
+import { ChatPanel, CursorsOverlay, PlayersBar, type RoomMessage, type RoomPlayer } from "@/components/game/multiplayer";
+import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/controls";
+import { createGeometry } from "@/engine/geometry";
+import { randomSeed } from "@/engine/random";
+import { scatterPositions } from "@/engine/puzzle";
+import type { PieceSnapshot, PuzzleConfig } from "@/engine/types";
+import { multiplayerAvailable } from "@/lib/convexClient";
+import type { PuzzleImage } from "@/services/images";
+import { colorForSession, getSessionId, randomName } from "@/services/session";
+import { useSettings } from "@/stores/settingsStore";
+import { PageShell } from "@/components/PageShell";
+
+export default function RoomPage() {
+  if (!multiplayerAvailable) return <Navigate to="/join" replace />;
+  return <RoomInner />;
+}
+
+/** Computes the deterministic initial scatter that all clients share. */
+function initialPiecesFor(config: PuzzleConfig, seed: number, imageW: number, imageH: number) {
+  const geom = createGeometry(config, seed, imageW, imageH);
+  const spots = scatterPositions(geom, seed, config.rows * config.cols);
+  return spots.map((s, i) => ({
+    pieceId: i,
+    x: s.x,
+    y: s.y,
+    rot: config.rotationEnabled ? Math.floor(Math.random() * 4) : 0,
+  }));
+}
+
+function RoomInner() {
+  const { code } = useParams<{ code: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const sessionId = useMemo(getSessionId, []);
+  const myColor = useMemo(() => colorForSession(sessionId), [sessionId]);
+  const playerName = useSettings((s) => s.playerName) || randomName();
+
+  const createRoom = useMutation(api.rooms.create);
+  const creatingRef = useRef(false);
+  const [createError, setCreateError] = useState(false);
+
+  // ---- /room/new : host creates the room, then redirects to its code
+  const hostState = location.state as { image?: PuzzleImage; config?: PuzzleConfig; seed?: number } | null;
+  const isNew = code === "new";
+  useEffect(() => {
+    if (!isNew || creatingRef.current) return;
+    if (!hostState?.image || !hostState.config || hostState.seed === undefined) return;
+    creatingRef.current = true;
+    void (async () => {
+      try {
+        // Use the provider-reported dimensions capped like loadPuzzleBitmap does.
+        const img = hostState.image!;
+        const cap = 2200 / Math.max(img.width, img.height);
+        const scale = Math.min(1, cap);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const { code: newCode } = await createRoom({
+          hostSessionId: sessionId,
+          imageUrl: img.url,
+          thumbUrl: img.thumbUrl,
+          seed: hostState.seed!,
+          config: hostState.config!,
+          initialPieces: initialPiecesFor(hostState.config!, hostState.seed!, w, h),
+        });
+        navigate(`/room/${newCode}`, { replace: true });
+      } catch {
+        setCreateError(true);
+      }
+    })();
+  }, [isNew, hostState, createRoom, navigate, sessionId]);
+
+  const room = useQuery(api.rooms.getByCode, isNew ? "skip" : { code: code ?? "" });
+
+  if (isNew) {
+    if (!hostState?.image) return <Navigate to="/new?mode=host" replace />;
+    return (
+      <CenteredNote>
+        {createError ? (
+          <>
+            <span className="text-4xl">🌧️</span>
+            <p className="text-sm font-semibold text-secondary">Couldn't create the room. Is your Convex dev server running?</p>
+            <Button onClick={() => navigate("/new?mode=host")}>Back</Button>
+          </>
+        ) : (
+          <>
+            <Spinner />
+            <p className="text-sm font-bold text-secondary">Setting up your room…</p>
+          </>
+        )}
+      </CenteredNote>
+    );
+  }
+
+  if (room === undefined) {
+    return (
+      <CenteredNote>
+        <Spinner />
+        <p className="text-sm font-bold text-secondary">Finding room {code}…</p>
+      </CenteredNote>
+    );
+  }
+  if (room === null) {
+    return (
+      <CenteredNote>
+        <span className="text-4xl">🕵️</span>
+        <p className="text-sm font-semibold text-secondary">
+          No room called <span className="font-mono font-black">{code}</span> — check the code with your friend.
+        </p>
+        <Button onClick={() => navigate("/join")}>Try another code</Button>
+      </CenteredNote>
+    );
+  }
+
+  return <ActiveRoom roomId={room._id} room={room} sessionId={sessionId} playerName={playerName} myColor={myColor} />;
+}
+
+function CenteredNote({ children }: { children: React.ReactNode }) {
+  return (
+    <PageShell>
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">{children}</div>
+    </PageShell>
+  );
+}
+
+interface RoomDoc {
+  _id: Id<"rooms">;
+  code: string;
+  hostSessionId: string;
+  imageUrl: string;
+  thumbUrl: string;
+  seed: number;
+  config: PuzzleConfig;
+  status: "playing" | "completed";
+  createdAt: number;
+  elapsedAtComplete?: number;
+}
+
+function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
+  roomId: Id<"rooms">;
+  room: RoomDoc;
+  sessionId: string;
+  playerName: string;
+  myColor: string;
+}) {
+  const pieceDocs = useQuery(api.pieces.list, { roomId });
+  const playerDocs = useQuery(api.presence.listPlayers, { roomId });
+  const messageDocs = useQuery(api.chat.list, { roomId });
+
+  const join = useMutation(api.presence.join);
+  const heartbeat = useMutation(api.presence.heartbeat);
+  const claim = useMutation(api.pieces.claim);
+  const move = useMutation(api.pieces.move);
+  const release = useMutation(api.pieces.release);
+  const complete = useMutation(api.rooms.complete);
+  const restart = useMutation(api.rooms.restart);
+  const sendMessage = useMutation(api.chat.send);
+
+  const [controller, setController] = useState<GameController | null>(null);
+  const controllerRef = useRef<GameController | null>(null);
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+
+  const isHost = room.hostSessionId === sessionId;
+
+  // join + heartbeat presence (with cursor piggybacked)
+  useEffect(() => {
+    void join({ roomId, sessionId, name: playerName, color: myColor });
+    const beat = () =>
+      void heartbeat({
+        roomId,
+        sessionId,
+        ...(cursorRef.current ? { cursorX: cursorRef.current.x, cursorY: cursorRef.current.y } : {}),
+      }).catch(() => undefined);
+    const t = setInterval(beat, 4000);
+    return () => clearInterval(t);
+  }, [roomId, sessionId, playerName, myColor, join, heartbeat]);
+
+  // stream cursor position (throttled) from pointer moves over the canvas
+  useEffect(() => {
+    if (!controller) return;
+    let last = 0;
+    const onMove = (e: PointerEvent) => {
+      cursorRef.current = controller.screenToWorld(e.clientX, e.clientY);
+      const now = Date.now();
+      if (now - last > 180) {
+        last = now;
+        void heartbeat({
+          roomId,
+          sessionId,
+          cursorX: cursorRef.current.x,
+          cursorY: cursorRef.current.y,
+        }).catch(() => undefined);
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [controller, roomId, sessionId, heartbeat]);
+
+  // initial snapshots for the controller boot
+  const initialSnapshots = useMemo<PieceSnapshot[] | undefined>(() => {
+    if (!pieceDocs || pieceDocs.length === 0) return undefined;
+    return pieceDocs.map((d) => ({
+      id: d.pieceId,
+      x: d.x,
+      y: d.y,
+      rot: (d.rot % 4) as 0 | 1 | 2 | 3,
+      groupId: d.groupId,
+      placed: d.placed,
+      z: d.z,
+    }));
+    // boot once per game round; live updates flow through applyRemote below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pieceDocs !== undefined, room.seed]);
+
+  // live remote updates + remote lock outlines
+  useEffect(() => {
+    if (!controller || !pieceDocs) return;
+    const now = Date.now();
+    controller.applyRemote(
+      pieceDocs
+        .filter((d) => !(d.heldBy === sessionId))
+        .map((d) => ({
+          id: d.pieceId,
+          x: d.x,
+          y: d.y,
+          rot: (d.rot % 4) as 0 | 1 | 2 | 3,
+          groupId: d.groupId,
+          placed: d.placed,
+          z: d.z,
+        })),
+    );
+    const locks = new Map<number, { color: string }>();
+    const colorBySession = new Map((playerDocs ?? []).map((p) => [p.sessionId, p.color]));
+    for (const d of pieceDocs) {
+      if (d.heldBy && d.heldBy !== sessionId && now - (d.heldAt ?? 0) < 15000) {
+        locks.set(d.pieceId, { color: colorBySession.get(d.heldBy) ?? "#999" });
+      }
+    }
+    controller.setRemoteLocks(locks);
+  }, [controller, pieceDocs, playerDocs, sessionId]);
+
+  const players: RoomPlayer[] = useMemo(
+    () =>
+      (playerDocs ?? []).map((p) => ({
+        sessionId: p.sessionId,
+        name: p.name,
+        color: p.color,
+        online: p.online,
+        piecesPlaced: p.piecesPlaced,
+        cursorX: p.cursorX,
+        cursorY: p.cursorY,
+      })),
+    [playerDocs],
+  );
+
+  const messages: RoomMessage[] = useMemo(
+    () =>
+      (messageDocs ?? []).map((m) => ({
+        id: m._id,
+        sessionId: m.sessionId,
+        name: m.name,
+        color: m.color,
+        kind: m.kind,
+        text: m.text,
+        createdAt: m.createdAt,
+      })),
+    [messageDocs],
+  );
+
+  const events = useMemo(
+    () => ({
+      onClaim: (pieceIds: number[]) => void claim({ roomId, sessionId, pieceIds }).catch(() => undefined),
+      onStream: (snapshots: PieceSnapshot[]) =>
+        void move({ roomId, sessionId, snapshots: snapshots.map(toWire) }).catch(() => undefined),
+      onRelease: (snapshots: PieceSnapshot[]) =>
+        void release({ roomId, sessionId, snapshots: snapshots.map(toWire) }).catch(() => undefined),
+      onComplete: () =>
+        void complete({ roomId, elapsed: Date.now() - room.createdAt }).catch(() => undefined),
+    }),
+    [claim, move, release, complete, roomId, sessionId, room.createdAt],
+  );
+
+  const onRestart = useCallback(() => {
+    const seed = randomSeed();
+    const img = new Image();
+    // dimensions must match what clients load; use current controller's geometry
+    const c = controllerRef.current;
+    const w = c?.geom.width ?? 1600;
+    const h = c?.geom.height ?? 1200;
+    void img; // (image not needed — geometry width/height suffice)
+    void restart({
+      roomId,
+      sessionId,
+      seed,
+      initialPieces: initialPiecesFor(room.config, seed, w, h),
+    });
+  }, [restart, roomId, sessionId, room.config]);
+
+  // wait for first piece payload before booting the canvas
+  if (!pieceDocs) {
+    return (
+      <CenteredNote>
+        <Spinner />
+        <p className="text-sm font-bold text-secondary">Joining {room.code}…</p>
+      </CenteredNote>
+    );
+  }
+
+  const topPlayers = [...players].sort((a, b) => b.piecesPlaced - a.piecesPlaced).slice(0, 5);
+
+  return (
+    <GameView
+      key={`${room.code}-${room.seed}`}
+      imageUrl={room.imageUrl}
+      thumbUrl={room.thumbUrl}
+      config={room.config}
+      seed={room.seed}
+      initialSnapshots={initialSnapshots}
+      initialElapsed={room.status === "completed" ? (room.elapsedAtComplete ?? 0) : Date.now() - room.createdAt}
+      canPause={false}
+      events={events}
+      onControllerReady={(c) => {
+        controllerRef.current = c;
+        setController(c);
+      }}
+      onControllerGone={() => {
+        controllerRef.current = null;
+        setController(null);
+      }}
+      onRestart={isHost ? onRestart : undefined}
+      completionExtra={
+        <div className="glass rounded-2xl p-3 text-left">
+          <p className="mb-2 text-xs font-extrabold tracking-wide text-tertiary uppercase">Team effort</p>
+          {topPlayers.map((p) => (
+            <div key={p.sessionId} className="flex items-center gap-2 py-0.5 text-sm font-bold text-primary">
+              <span className="h-3 w-3 rounded-full" style={{ background: p.color }} />
+              <span className="flex-1 truncate">{p.name}{p.sessionId === sessionId ? " (you)" : ""}</span>
+              <span className="tabular-nums">{p.piecesPlaced} 🧩</span>
+            </div>
+          ))}
+        </div>
+      }
+    >
+      <PlayersBar players={players} hostSessionId={room.hostSessionId} mySessionId={sessionId} code={room.code} />
+      <CursorsOverlay players={players} mySessionId={sessionId} controller={controller} />
+      <ChatPanel
+        messages={messages}
+        mySessionId={sessionId}
+        onSend={(kind, text) =>
+          void sendMessage({ roomId, sessionId, name: playerName, color: myColor, kind, text }).catch(() => undefined)
+        }
+      />
+    </GameView>
+  );
+}
+
+function toWire(s: PieceSnapshot) {
+  return { pieceId: s.id, x: s.x, y: s.y, rot: s.rot, groupId: s.groupId, placed: s.placed, z: s.z };
+}
