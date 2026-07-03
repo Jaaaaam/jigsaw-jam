@@ -92,6 +92,8 @@ export class GameController {
   private stashedIds = new Set<number>();
   private completed = false;
   paused = false;
+  /** Blocks pan/zoom gestures and keys; explicit UI buttons still work. */
+  viewLocked = false;
 
   private abort = new AbortController();
 
@@ -462,13 +464,15 @@ export class GameController {
         if (this.paused) return;
         const tag = (e.target as HTMLElement | null)?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
-        if (e.key === "+" || e.key === "=") this.zoomBy(1.2);
-        if (e.key === "-") this.zoomBy(1 / 1.2);
-        if (e.key === "0") this.fitToScene();
-        if (e.key === "ArrowLeft") this.panBy(60, 0);
-        if (e.key === "ArrowRight") this.panBy(-60, 0);
-        if (e.key === "ArrowUp") this.panBy(0, 60);
-        if (e.key === "ArrowDown") this.panBy(0, -60);
+        if (!this.viewLocked) {
+          if (e.key === "+" || e.key === "=") this.zoomBy(1.2);
+          if (e.key === "-") this.zoomBy(1 / 1.2);
+          if (e.key === "0") this.fitToScene();
+          if (e.key === "ArrowLeft") this.panBy(60, 0);
+          if (e.key === "ArrowRight") this.panBy(-60, 0);
+          if (e.key === "ArrowUp") this.panBy(0, 60);
+          if (e.key === "ArrowDown") this.panBy(0, -60);
+        }
         if (e.key.toLowerCase() === "r" && this.lastClient) {
           this.rotateHovered(this.lastClient.x, this.lastClient.y);
         }
@@ -494,7 +498,7 @@ export class GameController {
     this.canvas.setPointerCapture?.(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    if (this.pointers.size === 2 && !this.drag) {
+    if (this.pointers.size === 2 && !this.drag && !this.viewLocked) {
       // begin pinch
       const [a, b] = [...this.pointers.values()];
       const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y);
@@ -522,10 +526,10 @@ export class GameController {
       this.events.onPickUp?.(members.length);
       this.events.onClaim?.(members.map((p) => p.id));
       this.dirty = true;
-    } else {
+    } else if (!this.viewLocked) {
       this.pan = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, vpX: this.vpX, vpY: this.vpY };
     }
-    this.canvas.style.cursor = "grabbing";
+    if (this.drag || this.pan) this.canvas.style.cursor = "grabbing";
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -599,7 +603,7 @@ export class GameController {
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
-    if (this.paused) return;
+    if (this.paused || this.viewLocked) return;
     if (e.ctrlKey || e.metaKey) {
       // trackpad pinch gesture
       this.zoomBy(Math.exp(-e.deltaY * 0.01), { x: e.clientX, y: e.clientY });

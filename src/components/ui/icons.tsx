@@ -128,3 +128,9 @@ export const ToolsIcon = (p: SVGProps<SVGSVGElement>) => (
 export const CloseIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="m6 6 12 12M18 6 6 18" /></svg>
 );
+export const LockIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="5" y="11" width="14" height="9" rx="2.5" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </svg>
+);

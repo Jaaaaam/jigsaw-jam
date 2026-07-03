@@ -13,8 +13,9 @@ import { Modal } from "@/components/ui/Modal";
 import { Confetti } from "./Confetti";
 import { SoundControl, ThemeToggle } from "@/components/PageShell";
 import {
-  ArrowLeftIcon, BulbIcon, CloseIcon, FitIcon, FrameIcon, FullscreenIcon, GearIcon, GhostIcon,
-  ImageIcon, LayersIcon, MinusIcon, PauseIcon, PlayIcon, PlusIcon, ShuffleIcon, TidyIcon, ToolsIcon,
+  ArrowLeftIcon, BulbIcon, CloseIcon, FitIcon, FrameIcon, FullscreenIcon,
+  GearIcon, GhostIcon, ImageIcon, LayersIcon, LockIcon, MinusIcon, PauseIcon, PlayIcon, PlusIcon,
+  ShuffleIcon, TidyIcon, ToolsIcon,
 } from "@/components/ui/icons";
 
 export interface GameViewProps {
@@ -53,6 +54,7 @@ export function GameView(props: GameViewProps) {
   const [previewSize, setPreviewSize] = useState(180);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(() => window.innerWidth >= 1024);
+  const [viewLocked, setViewLocked] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
 
@@ -285,6 +287,15 @@ export function GameView(props: GameViewProps) {
               <ToolRow icon={<TidyIcon />} label="Tidy pieces" onClick={() => { controllerRef.current?.arrange(); sounds.play("whoosh"); }} />
               <ToolRow icon={<ShuffleIcon />} label="Shuffle" onClick={() => { controllerRef.current?.shuffle(); sounds.play("whoosh"); }} />
               <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
+              <ToolRow
+                icon={<LockIcon />}
+                label="Lock view"
+                toggled={viewLocked}
+                onClick={() => {
+                  setViewLocked(!viewLocked);
+                  if (controllerRef.current) controllerRef.current.viewLocked = !viewLocked;
+                }}
+              />
               <ToolRow icon={<GearIcon />} label="Settings" onClick={() => setSettingsOpen(true)} />
             </motion.nav>
           ) : (
