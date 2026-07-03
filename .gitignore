@@ -23,9 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# AI tooling — local only, not for the public repo
+# AI tooling / local-only docs — not for the public repo
 .claude/
-docs/superpowers/
+docs/
 CLAUDE.md
 AGENTS.md
 .env
