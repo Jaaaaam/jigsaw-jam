@@ -13,8 +13,15 @@ interface PixabayHit {
   tags: string;
 }
 
+/**
+ * Baseline quality gates, applied server-side so pages stay full (24/page):
+ * photos only (no clipart/vectors) and originals big enough to cut cleanly
+ * into pieces at the 2200px puzzle cap.
+ */
+const QUALITY = "image_type=photo&min_width=1600&min_height=1050";
+
 async function call(params: string): Promise<PuzzleImage[]> {
-  const res = await fetch(`https://pixabay.com/api/?key=${KEY}&per_page=24&safesearch=true&${params}`);
+  const res = await fetch(`https://pixabay.com/api/?key=${KEY}&per_page=24&safesearch=true&${QUALITY}&${params}`);
   if (!res.ok) throw new ProviderError(`Pixabay error ${res.status}`, res.status === 429);
   const data = (await res.json()) as { hits: PixabayHit[] };
   return data.hits.map((h) => ({

@@ -39,10 +39,13 @@ export const pexelsProvider: ImageProvider = {
   name: "Pexels",
   supportsSearch: true,
   isAvailable: () => Boolean(KEY),
+  // size=medium keeps only photos whose original is ≥12MP — small uploads
+  // never reach the picker. Server-side, so pages stay full (24/page).
+  // The curated feed has no size filter, but it's hand-picked by Pexels.
   search: (query, page) =>
-    call(`search?query=${encodeURIComponent(query)}&per_page=24&page=${page}&orientation=landscape`),
+    call(`search?query=${encodeURIComponent(query)}&per_page=24&page=${page}&orientation=landscape&size=medium`),
   curated: (category, page) =>
     category
-      ? call(`search?query=${encodeURIComponent(category)}&per_page=24&page=${page}&orientation=landscape`)
+      ? call(`search?query=${encodeURIComponent(category)}&per_page=24&page=${page}&orientation=landscape&size=medium`)
       : call(`curated?per_page=24&page=${page}`),
 };
