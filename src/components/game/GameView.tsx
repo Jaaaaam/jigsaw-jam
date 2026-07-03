@@ -15,7 +15,7 @@ import { SoundControl, ThemeToggle } from "@/components/PageShell";
 import {
   ArrowLeftIcon, BulbIcon, CloseIcon, EyeIcon, EyeOffIcon, FitIcon, FrameIcon, FullscreenIcon,
   GearIcon, GhostIcon, ImageIcon, LayersIcon, LockIcon, MinusIcon, PauseIcon, PlayIcon, PlusIcon,
-  ShuffleIcon, TidyIcon, ToolsIcon,
+  ShuffleIcon, TargetIcon, TidyIcon, ToolsIcon,
 } from "@/components/ui/icons";
 
 export interface GameViewProps {
@@ -49,6 +49,7 @@ export function GameView(props: GameViewProps) {
   const { boardColor, setBoardColor, boardTexture, setBoardTexture } = useSettings();
   const [ghost, setGhost] = useState(false);
   const [edgeGlow, setEdgeGlow] = useState(false);
+  const [snapGuide, setSnapGuide] = useState(true);
   const [stash, setStash] = useState(props.config.edgesFirst);
   const [previewOpen, setPreviewOpen] = useState(true);
   const [previewSize, setPreviewSize] = useState(180);
@@ -116,6 +117,7 @@ export function GameView(props: GameViewProps) {
           options: {
             ghost: false,
             edgeHighlight: false,
+            snapGuide: true,
             boardColor: useSettings.getState().boardColor,
             boardTexture: useSettings.getState().boardTexture,
             rotationEnabled: p.config.rotationEnabled,
@@ -305,6 +307,15 @@ export function GameView(props: GameViewProps) {
                 onClick={() => {
                   setEdgeGlow(!edgeGlow);
                   controllerRef.current?.setOptions({ edgeHighlight: !edgeGlow });
+                }}
+              />
+              <ToolRow
+                icon={<TargetIcon />}
+                label="Snap guide"
+                toggled={snapGuide}
+                onClick={() => {
+                  setSnapGuide(!snapGuide);
+                  controllerRef.current?.setOptions({ snapGuide: !snapGuide });
                 }}
               />
               <ToolRow

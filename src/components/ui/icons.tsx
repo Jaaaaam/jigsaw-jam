@@ -141,6 +141,13 @@ export const EyeOffIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
   </svg>
 );
+export const TargetIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="7.5" />
+    <circle cx="12" cy="12" r="3.5" />
+    <circle cx="12" cy="12" r="0.5" fill="currentColor" stroke="none" />
+  </svg>
+);
 export const EyeIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M2.5 12C3.5 9 7 5 12 5s8.5 4 9.5 7c-1 3-4.5 7-9.5 7s-8.5-4-9.5-7z" />

@@ -25,6 +25,8 @@ export type BoardTextureId = "none" | "felt" | "wood" | "linen";
 export interface ControllerOptions {
   ghost: boolean;
   edgeHighlight: boolean;
+  /** Green glow + ring while a dragged piece hovers its correct spot. */
+  snapGuide: boolean;
   boardColor: string;
   boardTexture: BoardTextureId;
   rotationEnabled: boolean;
@@ -978,7 +980,7 @@ export class GameController {
       ctx.globalAlpha = 0.9;
       ctx.strokeRect(-cw / 2 - sprite.mx * 0.4, -ch / 2 - sprite.my * 0.4, cw + sprite.mx * 0.8, ch + sprite.my * 0.8);
     }
-    if (dragged && this.drag?.hovered) {
+    if (dragged && this.drag?.hovered && this.opts.snapGuide) {
       ctx.shadowColor = "rgba(52,180,127,0.9)";
       ctx.shadowBlur = 30 / this.scale;
       ctx.strokeStyle = "rgba(52,180,127,0.9)";
