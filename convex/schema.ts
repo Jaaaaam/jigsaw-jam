@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { puzzleConfigValidator } from "./types";
 
 export default defineSchema({
   rooms: defineTable({
@@ -8,15 +9,7 @@ export default defineSchema({
     imageUrl: v.string(),
     thumbUrl: v.string(),
     seed: v.number(),
-    config: v.object({
-      rows: v.number(),
-      cols: v.number(),
-      shape: v.union(v.literal("classic"), v.literal("square")),
-      snapTolerance: v.number(),
-      rotationEnabled: v.boolean(),
-      edgesFirst: v.boolean(),
-      casual: v.boolean(),
-    }),
+    config: puzzleConfigValidator,
     status: v.union(v.literal("playing"), v.literal("completed")),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
