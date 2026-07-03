@@ -135,18 +135,26 @@ function paintSprite(args: PaintArgs): HTMLCanvasElement | OffscreenCanvas {
   ctx.stroke(boundary);
   ctx.restore();
 
-  // Interior joins: a whisper of a seam plus a hairline light catch below,
-  // like two snugly fitted cardboard pieces.
+  // Interior joins: embossed relief like flush-fitting cardboard — a lit
+  // lip toward the light, a shaded lip away from it, and a crisp cut line
+  // between. Each piece stays readable inside the blob; only the outer
+  // bevel and the drop shadow are unified.
   if (seams && args.seamDarkness > 0) {
     const k = args.seamDarkness;
     ctx.save();
-    ctx.translate(rim * 0.3, rim * 0.35);
-    ctx.strokeStyle = `rgba(255,255,255,${(0.22 * k).toFixed(3)})`;
-    ctx.lineWidth = rim * 0.5;
+    ctx.translate(rim * 0.5, rim * 0.6);
+    ctx.strokeStyle = `rgba(255,255,255,${(0.42 * k).toFixed(3)})`;
+    ctx.lineWidth = rim * 1.4;
     ctx.stroke(seams);
     ctx.restore();
-    ctx.strokeStyle = `rgba(35,24,18,${(0.45 * k).toFixed(3)})`;
-    ctx.lineWidth = rim * (0.3 + 0.4 * k);
+    ctx.save();
+    ctx.translate(-rim * 0.5, -rim * 0.6);
+    ctx.strokeStyle = `rgba(35,24,18,${(0.3 * k).toFixed(3)})`;
+    ctx.lineWidth = rim * 1.4;
+    ctx.stroke(seams);
+    ctx.restore();
+    ctx.strokeStyle = `rgba(40,28,20,${(0.42 * k).toFixed(3)})`;
+    ctx.lineWidth = rim * 0.4;
     ctx.stroke(seams);
   }
   ctx.restore(); // clip

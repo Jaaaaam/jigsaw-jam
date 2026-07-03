@@ -66,9 +66,11 @@ export class GameController {
   private sprites: PieceSprite[] = [];
   /** Baked merged sprites for snapped-together groups, keyed by groupId. */
   private clusterSprites = new Map<number, { size: number; sprite: ClusterSprite }>();
+  /** Board-placed pieces baked as one slab — same look as loose clusters. */
+  private placedCache: { count: number; sprite: ClusterSprite } | null = null;
   private spriteScale = 1;
-  private placedLayer: HTMLCanvasElement;
-  private placedCtx: CanvasRenderingContext2D;
+  /** Scratch 2d context for Path2D hit tests. */
+  private hitCtx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private image: CanvasImageSource;
@@ -180,12 +182,7 @@ export class GameController {
       this.sprites.push(renderPieceSprite(this.geom, this.image, p.row, p.col, spriteScale));
     }
 
-    // Placed layer at sprite resolution
-    this.placedLayer = document.createElement("canvas");
-    this.placedLayer.width = Math.ceil(this.geom.width * spriteScale);
-    this.placedLayer.height = Math.ceil(this.geom.height * spriteScale);
-    this.placedCtx = this.placedLayer.getContext("2d")!;
-    this.bakeAllPlaced();
+    this.hitCtx = document.createElement("canvas").getContext("2d")!;
 
     // Viewport: fit board + tray band
     this.vpX = this.geom.width / 2;
@@ -249,7 +246,9 @@ export class GameController {
     const cached = this.clusterSprites.get(groupId);
     if (cached && cached.size === members.size) return cached.sprite;
     const cells = [...members].map((id) => this.pieces[id]!);
-    const sprite = renderClusterSprite(this.geom, this.image, cells, this.spriteScale, this.opts.placedSeam ?? 0.3);
+    // loose blobs always get full embossed joins — pieces are physical
+    // things; the seam slider only flattens the placed picture
+    const sprite = renderClusterSprite(this.geom, this.image, cells, this.spriteScale, 1);
     this.clusterSprites.set(groupId, { size: members.size, sprite });
     return sprite;
   }
@@ -363,9 +362,9 @@ export class GameController {
   setOptions(patch: Partial<ControllerOptions>): void {
     const prevSeam = this.opts.placedSeam;
     Object.assign(this.opts, patch);
-    // seam darkness is baked into the placed layer and loose clusters — redo on change
+    // seam darkness is baked into the placed slab and loose clusters — redo on change
     if (patch.placedSeam !== undefined && patch.placedSeam !== prevSeam) {
-      this.bakeAllPlaced();
+      this.placedCache = null;
       this.clusterSprites.clear();
     }
     this.dirty = true;
@@ -410,14 +409,14 @@ export class GameController {
       // leave pieces another player is holding alone — fighting their drag
       // would desync; the claim TTL frees them soon enough
       if (p.placed || this.remoteLocks.has(p.id)) continue;
+      // snapped-together groups are progress, not mess — never break or
+      // scatter them: in freeform they're the ONLY progress there is
+      if (this.groups.get(p.groupId)!.size > 1) continue;
       const spot = spots[i++ % spots.length]!;
       this.animatePiece(p, spot.x, spot.y, 420);
-      // shuffling breaks apart unplaced groups — classic reshuffle behaviour
-      p.groupId = p.id;
       // sync the resting spot, not the mid-tween position
       moved.push({ id: p.id, x: spot.x, y: spot.y, rot: p.rot, groupId: p.groupId, placed: false, z: p.z });
     }
-    this.rebuildGroups();
     // persist to the room — otherwise the next remote echo reverts the shuffle
     if (moved.length) this.events.onRelease?.(moved);
     this.dirty = true;
@@ -492,6 +491,8 @@ export class GameController {
   private rotateGroup(groupId: number): void {
     const members = this.groupPieces(groupId);
     if (members.length === 0) return;
+    // rotating mid-tween would pivot from transient positions
+    this.finishTweens(members);
     // pivot: centre of the group's cells
     let cx = 0;
     let cy = 0;
@@ -538,7 +539,7 @@ export class GameController {
     }
     if (changed) {
       this.rebuildGroups();
-      this.bakeAllPlaced();
+      this.placedCache = null;
       this.dirty = true;
       this.checkComplete(false);
     }
@@ -631,6 +632,10 @@ export class GameController {
     const hit = forcePan ? null : this.hitTest(world);
     if (hit && !hit.placed && !this.remoteLocks.has(hit.id)) {
       const members = this.groupPieces(hit.groupId);
+      // settle any in-flight snap animation first — capturing drag offsets
+      // mid-tween lets the tween fight the drag and leaves the group's true
+      // positions out of line with the rigidly-drawn cluster
+      this.finishTweens(members);
       const offsets = new Map<number, Vec2>();
       for (const p of members) {
         offsets.set(p.id, { x: p.pos.x - world.x, y: p.pos.y - world.y });
@@ -798,14 +803,14 @@ export class GameController {
       const joined = members.some((p) =>
         neighborIds(this.geom, p).some((nId) => !memberIds.has(nId) && this.pieces[nId]!.placed),
       );
+      // placed pieces render from the baked slab, so land them instantly —
+      // a tween would be invisible anyway
       for (const p of members) {
-        this.animatePiece(p, p.correct.x, p.correct.y, 140, () => {
-          p.placed = true;
-          this.bakePiece(p);
-          this.dirty = true;
-        });
+        p.pos.x = p.correct.x;
+        p.pos.y = p.correct.y;
+        p.placed = true;
       }
-      // mark placed immediately for game state; animation is cosmetic
+      this.placedCache = null;
       const total = this.pieces.length;
       window.setTimeout(() => {
         this.events.onPlace?.(this.placedCount, total, joined);
@@ -813,8 +818,8 @@ export class GameController {
         this.checkComplete(true);
       }, 150);
       // no onDrop here — the snap/join sound is the drop feedback
-      for (const p of members) p.placed = true;
-      this.clusterSprites.delete(groupId); // placed groups render from the baked layer
+      this.clusterSprites.delete(groupId); // placed groups render from the baked slab
+      this.dirty = true;
       return;
     }
 
@@ -834,11 +839,22 @@ export class GameController {
   private tryNeighborMerge(members: PieceState[]): boolean {
     const join = this.findNeighborJoin(members);
     if (!join) return false;
-    // move the dragged members onto the neighbour's group
-    for (const m of members) {
-      this.animatePiece(m, m.pos.x + join.errX, m.pos.y + join.errY, 120);
-    }
     this.mergeGroups(join.neighbor.groupId, join.piece.groupId);
+    // Rigid re-align: land every member exactly on the neighbour-anchored
+    // grid, healing any accumulated drift. The cluster is drawn rigid from
+    // one anchor, so the true positions (hitboxes) must match to the pixel.
+    const anchor = join.neighbor;
+    for (const m of this.groupPieces(anchor.groupId)) {
+      if (m === anchor) continue;
+      let dx = m.correct.x - anchor.correct.x;
+      let dy = m.correct.y - anchor.correct.y;
+      for (let i = 0; i < anchor.rot; i++) {
+        const t = dx;
+        dx = -dy;
+        dy = t;
+      }
+      this.animatePiece(m, anchor.pos.x + dx, anchor.pos.y + dy, 120);
+    }
     return true;
   }
 
@@ -877,7 +893,7 @@ export class GameController {
       if (lx < -mx || ly < -my || lx > this.geom.cellW + mx || ly > this.geom.cellH + my) continue;
       const sprite = this.sprites[p.id]!;
       const s = sprite.scale;
-      const ctx = this.placedCtx; // any 2d ctx works for isPointInPath
+      const ctx = this.hitCtx;
       ctx.save();
       ctx.setTransform(s, 0, 0, s, 0, 0);
       const inside = ctx.isPointInPath(sprite.path, lx * s, ly * s);
@@ -889,34 +905,39 @@ export class GameController {
 
   // ----------------------------------------------------------- baking
 
-  private bakeAllPlaced(): void {
-    this.placedCtx.setTransform(1, 0, 0, 1, 0, 0);
-    this.placedCtx.clearRect(0, 0, this.placedLayer.width, this.placedLayer.height);
-    for (const p of this.pieces) if (p.placed) this.bakePiece(p);
-  }
-
-  private bakePiece(p: PieceState): void {
-    // Placed pieces flatten into the picture: bake the raw clipped image with
-    // only a whisper of a seam, not the beveled/shadowed loose-piece sprite.
-    const sprite = this.sprites[p.id]!;
-    const s = this.placedLayer.width / this.geom.width;
-    const ctx = this.placedCtx;
-    ctx.save();
-    // cell-local coordinates at layer resolution — sprite.path is cell-local
-    ctx.setTransform(s, 0, 0, s, p.correct.x * s, p.correct.y * s);
-    ctx.clip(sprite.path);
-    ctx.drawImage(this.image, -p.correct.x, -p.correct.y);
-    const seam = this.opts.placedSeam ?? 0.3;
-    if (seam > 0) {
-      const rim = Math.max(1.4, Math.min(this.geom.cellW, this.geom.cellH) * 0.02);
-      ctx.strokeStyle = `rgba(35,24,18,${(0.5 * seam).toFixed(3)})`;
-      ctx.lineWidth = rim * (0.35 + 0.55 * seam);
-      ctx.stroke(sprite.path);
-    }
-    ctx.restore();
+  /**
+   * Lazily bake all board-placed pieces as ONE slab with the same physical
+   * look as loose clusters — outer bevel, gloss, subtle interior seams —
+   * so classic board and freeform read identically.
+   */
+  private placedSprite(): ClusterSprite | null {
+    const placed = this.pieces.filter((p) => p.placed);
+    if (placed.length === 0) return null;
+    if (this.placedCache && this.placedCache.count === placed.length) return this.placedCache.sprite;
+    const sprite = renderClusterSprite(this.geom, this.image, placed, this.spriteScale, this.opts.placedSeam ?? 0.3);
+    this.placedCache = { count: placed.length, sprite };
+    return sprite;
   }
 
   // ----------------------------------------------------------- animation
+
+  /** Jump the given pieces' active tweens straight to their targets. */
+  private finishTweens(members: PieceState[]): void {
+    if (this.tweens.length === 0) return;
+    const ids = new Set(members.map((m) => m.id));
+    const rest: Tween[] = [];
+    for (const t of this.tweens) {
+      if (ids.has(t.piece.id)) {
+        t.piece.pos.x = t.toX;
+        t.piece.pos.y = t.toY;
+        t.onDone?.();
+      } else {
+        rest.push(t);
+      }
+    }
+    this.tweens = rest;
+    this.dirty = true;
+  }
 
   private animatePiece(p: PieceState, toX: number, toY: number, duration: number, onDone?: () => void): void {
     this.tweens = this.tweens.filter((t) => t.piece.id !== p.id);
@@ -1019,9 +1040,19 @@ export class GameController {
       ctx.restore();
     }
 
-    // Placed pieces (pre-baked layer; always empty in freeform)
+    // Placed pieces — one baked slab, same physical look as loose clusters
+    // (never any in freeform)
     if (!this.freeform) {
-      ctx.drawImage(this.placedLayer, 0, 0, this.geom.width, this.geom.height);
+      const placed = this.placedSprite();
+      if (placed) {
+        const px = placed.originCol * this.geom.cellW - placed.mx;
+        const py = placed.originRow * this.geom.cellH - placed.my;
+        const pw = placed.cellCols * this.geom.cellW + 2 * placed.mx;
+        const ph = placed.cellRows * this.geom.cellH + 2 * placed.my;
+        const rim = Math.min(this.geom.cellW, this.geom.cellH) * 0.02;
+        ctx.drawImage(placed.shadow, px + rim * 0.4, py + rim * 1.6, pw, ph);
+        ctx.drawImage(placed.canvas, px, py, pw, ph);
+      }
     }
 
     // Visible world rect for culling
