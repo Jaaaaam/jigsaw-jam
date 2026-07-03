@@ -152,20 +152,26 @@ export default function NewPuzzlePage() {
               {hosting ? "Pick a photo for your room" : "Pick a photo"}
             </h1>
             <div className="ml-auto flex items-center gap-2">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (file) void uploadFile(file);
-                }}
-              />
-              <Button size="sm" variant="secondary" disabled={importing} onClick={() => fileRef.current?.click()}>
-                {importing ? "Importing…" : "⬆ Upload photo"}
-              </Button>
+              {/* solo only: rooms share the image by URL through Convex, and a
+                  data-URL photo is far too large for the room document */}
+              {!hosting && (
+                <>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) void uploadFile(file);
+                    }}
+                  />
+                  <Button size="sm" variant="secondary" disabled={importing} onClick={() => fileRef.current?.click()}>
+                    {importing ? "Importing…" : "⬆ Upload photo"}
+                  </Button>
+                </>
+              )}
               <Button size="sm" variant="secondary" onClick={surprise}>
                 🎲 Surprise me
               </Button>
