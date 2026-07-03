@@ -43,6 +43,25 @@ describe("scatterPositions", () => {
       expect(inside).toBe(false);
     }
   });
+
+  test("scatter fills the viewport shape, not a uniform ring", () => {
+    const bounds = (spots: ReturnType<typeof scatterPositions>) => {
+      let minX = 0, maxX = geom.width, minY = 0, maxY = geom.height;
+      for (const s of spots) {
+        minX = Math.min(minX, s.x);
+        maxX = Math.max(maxX, s.x + geom.cellW);
+        minY = Math.min(minY, s.y);
+        maxY = Math.max(maxY, s.y + geom.cellH);
+      }
+      return (maxX - minX) / (maxY - minY);
+    };
+    const wide = bounds(scatterPositions(geom, 7, 48, 21 / 9));
+    const tall = bounds(scatterPositions(geom, 7, 48, 9 / 21));
+    // widescreen scatter spreads sideways; phone scatter stacks vertically
+    expect(wide).toBeGreaterThan(1.5);
+    expect(tall).toBeLessThan(1);
+    expect(wide).toBeGreaterThan(tall);
+  });
 });
 
 describe("snapshots", () => {

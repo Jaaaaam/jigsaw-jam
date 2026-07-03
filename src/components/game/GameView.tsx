@@ -121,6 +121,9 @@ export function GameView(props: GameViewProps) {
             boardColor: useSettings.getState().boardColor,
             boardTexture: useSettings.getState().boardTexture,
             rotationEnabled: p.config.rotationEnabled,
+            // top bar (+ players bar in rooms) and bottom zoom bar overlay
+            // the canvas — keep the initial fit clear of them
+            viewInsets: { top: 96, bottom: 76 },
           },
           snapshots: p.initialSnapshots,
         });

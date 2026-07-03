@@ -30,6 +30,8 @@ export interface ControllerOptions {
   boardColor: string;
   boardTexture: BoardTextureId;
   rotationEnabled: boolean;
+  /** Screen-px bands covered by HUD chrome; fitToScene keeps pieces clear of them. */
+  viewInsets?: { top: number; bottom: number };
 }
 
 interface Tween {
@@ -125,7 +127,7 @@ export class GameController {
         this.zCounter = Math.max(this.zCounter, s.z + 1);
       }
     } else {
-      const spots = scatterPositions(this.geom, args.seed, this.pieces.length);
+      const spots = scatterPositions(this.geom, args.seed, this.pieces.length, this.viewAspect());
       this.pieces.forEach((p, i) => {
         const spot = spots[i]!;
         p.pos.x = spot.x;
@@ -255,12 +257,18 @@ export class GameController {
     const w = maxX - minX;
     const h = maxY - minY;
     const pad = 1.06;
-    const s = Math.min(rect.width / (w * pad), rect.height / (h * pad));
+    // frame the scene inside the band left free by HUD chrome, so scattered
+    // pieces don't boot up hidden behind the top bar / zoom controls
+    const insetT = this.opts.viewInsets?.top ?? 0;
+    const insetB = this.opts.viewInsets?.bottom ?? 0;
+    const availH = Math.max(80, rect.height - insetT - insetB);
+    const s = Math.min(rect.width / (w * pad), availH / (h * pad));
     this.scale = s;
     this.minScale = s * 0.4;
     this.maxScale = Math.max(4, s * 12);
     this.vpX = (minX + maxX) / 2;
-    this.vpY = (minY + maxY) / 2;
+    // shift the world centre so it lands mid-way between the insets
+    this.vpY = (minY + maxY) / 2 - (insetT - insetB) / (2 * s);
     this.dirty = true;
     this.events.onZoomChange?.(s);
   }
@@ -328,8 +336,19 @@ export class GameController {
 
   // ----------------------------------------------------------- actions
 
+  /** Canvas width/height ratio — shapes where the scatter tray puts pieces. */
+  private viewAspect(): number {
+    const rect = this.canvas.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 16 / 9;
+  }
+
   shuffle(): void {
-    const spots = scatterPositions(this.geom, Math.floor(Math.random() * 0xffffffff), this.pieces.length);
+    const spots = scatterPositions(
+      this.geom,
+      Math.floor(Math.random() * 0xffffffff),
+      this.pieces.length,
+      this.viewAspect(),
+    );
     let i = 0;
     for (const p of this.pieces) {
       if (p.placed) continue;
@@ -347,7 +366,7 @@ export class GameController {
   /** Tidy unplaced singles into the tray band around the board. */
   arrange(): void {
     const loose = this.pieces.filter((p) => !p.placed && !this.stashedIds.has(p.id));
-    const spots = scatterPositions(this.geom, 42, this.pieces.length);
+    const spots = scatterPositions(this.geom, 42, this.pieces.length, this.viewAspect());
     // tidy slots read left-to-right, top-to-bottom…
     const sorted = [...spots].sort((a, b) => a.y - b.y || a.x - b.x);
     const singles = loose.filter((p) => this.groups.get(p.groupId)!.size === 1);
