@@ -7,10 +7,19 @@ export type PieceShape = "classic" | "square";
 
 export type DifficultyId = "easy" | "medium" | "hard" | "expert" | "custom";
 
+/**
+ * "board": pieces snap into a board the size of the photo.
+ * "freeform": a big open table — no fixed slots, pieces only join each
+ * other, and the picture is finished wherever you build it.
+ */
+export type BoardMode = "board" | "freeform";
+
 export interface PuzzleConfig {
   rows: number;
   cols: number;
   shape: PieceShape;
+  /** Optional for backward compatibility with old saves/rooms — treat absent as "board". */
+  boardMode?: BoardMode;
   /** Snap distance as a fraction of piece size (0.1 = tight, 0.5 = forgiving). */
   snapTolerance: number;
   /** Pieces spawn with random 90° rotations and must be rotated back. */
@@ -94,6 +103,7 @@ export const DEFAULT_CONFIG: PuzzleConfig = {
   rows: 6,
   cols: 8,
   shape: "classic",
+  boardMode: "board",
   snapTolerance: 0.28,
   rotationEnabled: false,
   edgesFirst: false,

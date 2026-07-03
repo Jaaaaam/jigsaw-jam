@@ -13,6 +13,8 @@ export const puzzleConfigValidator = v.object({
   rows: v.number(),
   cols: v.number(),
   shape: v.union(v.literal("classic"), v.literal("square")),
+  // optional: rooms created before freeform mode existed omit it
+  boardMode: v.optional(v.union(v.literal("board"), v.literal("freeform"))),
   snapTolerance: v.number(),
   rotationEnabled: v.boolean(),
   edgesFirst: v.boolean(),

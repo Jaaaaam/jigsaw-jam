@@ -70,7 +70,7 @@ export default function PlayPage() {
         config: boot.config,
         seed: restartSeed ?? boot.seed,
         elapsed: useGame.getState().elapsed,
-        placed: controller.placedCount,
+        placed: controller.progressCount,
         total: controller.pieces.length,
         snapshots: controller.getSnapshots(),
         ...(useGame.getState().completed ? { completedAt: Date.now() } : {}),

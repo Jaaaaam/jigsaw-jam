@@ -93,7 +93,13 @@ export class GameController {
   private pinch: { dist: number; scale: number; midWorld: Vec2 } | null = null;
   private spaceHeld = false;
   private hintPiece: PieceState | null = null;
+  /** Freeform hint: the joinable partner piece, ringed alongside hintPiece. */
+  private hintPartner: PieceState | null = null;
   private hintStart = 0;
+  /** Freeform mode: open table, no board slots — pieces only join each other. */
+  private readonly freeform: boolean;
+  /** Table plate bounds in freeform mode (world units). */
+  private tableRect = { x: 0, y: 0, w: 0, h: 0 };
   private remoteLocks = new Map<number, RemoteLock>();
   private stashedIds = new Set<number>();
   private completed = false;
@@ -119,6 +125,7 @@ export class GameController {
     this.events = args.events;
     this.opts = { ...args.options };
     this.geom = createGeometry(args.config, args.seed, args.image.width, args.image.height);
+    this.freeform = args.config.boardMode === "freeform";
     this.pieces = createPieces(this.geom);
     this.zCounter = this.pieces.length;
 
@@ -140,6 +147,22 @@ export class GameController {
       });
     }
     this.rebuildGroups();
+
+    if (this.freeform) {
+      // table plate: covers the scattered pieces with breathing room
+      const { mx, my } = spriteMargins(this.geom);
+      let minX = -this.geom.cellW;
+      let minY = -this.geom.cellH;
+      let maxX = this.geom.width + this.geom.cellW;
+      let maxY = this.geom.height + this.geom.cellH;
+      for (const p of this.pieces) {
+        minX = Math.min(minX, p.pos.x - mx - this.geom.cellW * 0.5);
+        minY = Math.min(minY, p.pos.y - my - this.geom.cellH * 0.5);
+        maxX = Math.max(maxX, p.pos.x + this.geom.cellW * 1.5 + mx);
+        maxY = Math.max(maxY, p.pos.y + this.geom.cellH * 1.5 + my);
+      }
+      this.tableRect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
 
     // Sprites
     const spriteScale = computeSpriteScale(this.geom, this.pieces.length);
@@ -391,7 +414,30 @@ export class GameController {
     if (candidates.length === 0) return;
     // prefer edge pieces, then lowest id for stability
     candidates.sort((a, b) => Number(b.isEdge) - Number(a.isEdge) || a.id - b.id);
-    this.hintPiece = candidates[0]!;
+    this.hintPartner = null;
+    if (this.freeform) {
+      // no board slot to point at — ring a piece and a grid-neighbour it can
+      // join, preferring pairs that extend the biggest assembled cluster
+      candidates.sort(
+        (a, b) =>
+          this.groups.get(b.groupId)!.size - this.groups.get(a.groupId)!.size ||
+          Number(b.isEdge) - Number(a.isEdge) ||
+          a.id - b.id,
+      );
+      for (const p of candidates) {
+        const partner = neighborIds(this.geom, p)
+          .map((id) => this.pieces[id]!)
+          .find((n) => n.groupId !== p.groupId && !this.stashedIds.has(n.id));
+        if (partner) {
+          this.hintPiece = p;
+          this.hintPartner = partner;
+          break;
+        }
+      }
+      if (!this.hintPartner) return;
+    } else {
+      this.hintPiece = candidates[0]!;
+    }
     this.hintStart = performance.now();
     this.dirty = true;
   }
@@ -464,6 +510,14 @@ export class GameController {
     let n = 0;
     for (const p of this.pieces) if (p.placed) n++;
     return n;
+  }
+
+  /** Progress toward completion: board mode counts placed pieces; freeform counts the biggest assembled cluster. */
+  get progressCount(): number {
+    if (!this.freeform) return this.placedCount;
+    let max = 0;
+    for (const [, ids] of this.groups) max = Math.max(max, ids.size);
+    return max <= 1 ? 0 : max;
   }
 
   // ----------------------------------------------------------- input
@@ -642,10 +696,12 @@ export class GameController {
   }
 
   private isNearTarget(members: PieceState[]): boolean {
-    const tol = this.snapDistance();
-    for (const p of members) {
-      if (p.rot !== 0) continue;
-      if (Math.hypot(p.pos.x - p.correct.x, p.pos.y - p.correct.y) < tol) return true;
+    if (!this.freeform) {
+      const tol = this.snapDistance();
+      for (const p of members) {
+        if (p.rot !== 0) continue;
+        if (Math.hypot(p.pos.x - p.correct.x, p.pos.y - p.correct.y) < tol) return true;
+      }
     }
     // joining loose neighbours counts too — snapping works away from the board
     return this.findNeighborJoin(members) !== null;
@@ -686,13 +742,15 @@ export class GameController {
     const members = this.groupPieces(groupId);
     if (members.length === 0) return;
 
-    // 1) Snap to board
+    // 1) Snap to board — never in freeform: the table has no fixed slots
     const tol = this.snapDistance();
     let anchor: PieceState | null = null;
-    for (const p of members) {
-      if (p.rot === 0 && Math.hypot(p.pos.x - p.correct.x, p.pos.y - p.correct.y) < tol) {
-        anchor = p;
-        break;
+    if (!this.freeform) {
+      for (const p of members) {
+        if (p.rot === 0 && Math.hypot(p.pos.x - p.correct.x, p.pos.y - p.correct.y) < tol) {
+          anchor = p;
+          break;
+        }
       }
     }
     if (anchor) {
@@ -726,6 +784,8 @@ export class GameController {
     this.events.onRelease?.(this.groupPieces(this.pieces[members[0]!.id]!.groupId).map(toSnapshot));
     if (merged) {
       this.events.onMerge?.();
+      // in freeform, joins are the only progress — completion happens here
+      this.checkComplete(true);
     } else {
       this.events.onDrop?.();
     }
@@ -745,7 +805,10 @@ export class GameController {
 
   private checkComplete(fromLocal: boolean): void {
     if (this.completed) return;
-    if (this.pieces.every((p) => p.placed)) {
+    const solved = this.freeform
+      ? this.groups.size === 1 // the whole picture assembled, wherever it sits
+      : this.pieces.every((p) => p.placed);
+    if (solved) {
       this.completed = true;
       this.dirty = true;
       if (fromLocal || true) this.events.onComplete?.();
@@ -871,49 +934,56 @@ export class GameController {
       h / 2 - this.vpY * this.scale * dpr,
     );
 
-    // Board plate
+    // Plate: the photo-sized board with its pocket, or the big open table
     const r = Math.min(this.geom.cellW, this.geom.cellH) * 0.15;
+    const plate = this.freeform
+      ? { x: this.tableRect.x - r, y: this.tableRect.y - r, w: this.tableRect.w + 2 * r, h: this.tableRect.h + 2 * r }
+      : { x: -r, y: -r, w: this.geom.width + 2 * r, h: this.geom.height + 2 * r };
     ctx.save();
     ctx.fillStyle = this.opts.boardColor;
     ctx.shadowColor = "rgba(20,10,40,0.25)";
     ctx.shadowBlur = 30 / this.scale;
     ctx.shadowOffsetY = 8 / this.scale;
-    roundRect(ctx, -r, -r, this.geom.width + 2 * r, this.geom.height + 2 * r, r);
+    roundRect(ctx, plate.x, plate.y, plate.w, plate.h, r);
     ctx.fill();
     ctx.restore();
 
-    // Recessed pocket where the image assembles — defines the play area.
-    ctx.save();
-    ctx.fillStyle = "rgba(10,5,25,0.10)";
-    roundRect(ctx, 0, 0, this.geom.width, this.geom.height, r * 0.4);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.10)";
-    ctx.lineWidth = Math.max(1 / this.scale, r * 0.06);
-    roundRect(ctx, -r * 0.5, -r * 0.5, this.geom.width + r, this.geom.height + r, r * 0.6);
-    ctx.stroke();
-    ctx.restore();
+    if (!this.freeform) {
+      // Recessed pocket where the image assembles — defines the play area.
+      ctx.save();
+      ctx.fillStyle = "rgba(10,5,25,0.10)";
+      roundRect(ctx, 0, 0, this.geom.width, this.geom.height, r * 0.4);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.lineWidth = Math.max(1 / this.scale, r * 0.06);
+      roundRect(ctx, -r * 0.5, -r * 0.5, this.geom.width + r, this.geom.height + r, r * 0.6);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     const pattern = this.texturePattern();
     if (pattern) {
       ctx.save();
-      roundRect(ctx, -r, -r, this.geom.width + 2 * r, this.geom.height + 2 * r, r);
+      roundRect(ctx, plate.x, plate.y, plate.w, plate.h, r);
       ctx.clip();
       ctx.globalAlpha = 0.16;
       ctx.fillStyle = pattern;
-      ctx.fillRect(-r, -r, this.geom.width + 2 * r, this.geom.height + 2 * r);
+      ctx.fillRect(plate.x, plate.y, plate.w, plate.h);
       ctx.restore();
     }
 
-    // Ghost preview
-    if (this.opts.ghost && !this.completed) {
+    // Ghost preview — board mode only; freeform has no fixed destination
+    if (this.opts.ghost && !this.completed && !this.freeform) {
       ctx.save();
       ctx.globalAlpha = 0.16;
       ctx.drawImage(this.image, 0, 0, this.geom.width, this.geom.height);
       ctx.restore();
     }
 
-    // Placed pieces (pre-baked layer)
-    ctx.drawImage(this.placedLayer, 0, 0, this.geom.width, this.geom.height);
+    // Placed pieces (pre-baked layer; always empty in freeform)
+    if (!this.freeform) {
+      ctx.drawImage(this.placedLayer, 0, 0, this.geom.width, this.geom.height);
+    }
 
     // Visible world rect for culling
     const rect = this.canvas.getBoundingClientRect();
@@ -951,24 +1021,33 @@ export class GameController {
       ctx.strokeStyle = `rgba(246,90,51,${alpha.toFixed(3)})`;
       ctx.lineWidth = 5 / this.scale;
       ctx.setLineDash([14 / this.scale, 10 / this.scale]);
-      ctx.strokeRect(p.correct.x, p.correct.y, this.geom.cellW, this.geom.cellH);
-      // ring around the piece itself
-      ctx.beginPath();
-      ctx.arc(
-        p.pos.x + this.geom.cellW / 2,
-        p.pos.y + this.geom.cellH / 2,
-        Math.max(this.geom.cellW, this.geom.cellH) * 0.85,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
+      const ring = (piece: PieceState) => {
+        ctx.beginPath();
+        ctx.arc(
+          piece.pos.x + this.geom.cellW / 2,
+          piece.pos.y + this.geom.cellH / 2,
+          Math.max(this.geom.cellW, this.geom.cellH) * 0.85,
+          0,
+          Math.PI * 2,
+        );
+        ctx.stroke();
+      };
+      if (this.hintPartner) {
+        // freeform: ring the two pieces that fit together
+        ring(this.hintPartner);
+      } else {
+        // board mode: mark the piece's destination slot
+        ctx.strokeRect(p.correct.x, p.correct.y, this.geom.cellW, this.geom.cellH);
+      }
+      ring(p);
       ctx.restore();
     } else if (this.hintPiece && now - this.hintStart >= 3200) {
       this.hintPiece = null;
+      this.hintPartner = null;
     }
 
     // Completed sheen
-    if (this.completed) {
+    if (this.completed && !this.freeform) {
       ctx.save();
       ctx.globalAlpha = 0.08;
       ctx.fillStyle = "#ffffff";

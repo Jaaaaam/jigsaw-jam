@@ -427,6 +427,24 @@ export default function NewPuzzlePage() {
           </div>
 
           <div>
+            <h2 className="mb-2 text-lg font-black text-primary">Board</h2>
+            <Segmented
+              ariaLabel="Board mode"
+              options={[
+                { value: "board", label: "Classic board" },
+                { value: "freeform", label: "Free table" },
+              ]}
+              value={config.boardMode ?? "board"}
+              onChange={(boardMode) => setConfig((c) => ({ ...c, boardMode }))}
+            />
+            <p className="mt-1.5 text-[11px] font-semibold text-tertiary">
+              {(config.boardMode ?? "board") === "board"
+                ? "Pieces snap into a photo-sized board."
+                : "A big open table — no slots, build the picture anywhere by joining pieces."}
+            </p>
+          </div>
+
+          <div>
             <h2 className="mb-2 text-lg font-black text-primary">Pieces</h2>
             <Segmented
               ariaLabel="Piece shape"

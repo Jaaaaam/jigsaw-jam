@@ -80,12 +80,15 @@ export function GameView(props: GameViewProps) {
           onDrop: () => sounds.play("drop"),
           onMerge: () => {
             sounds.play("merge");
+            // freeform progress grows through joins, not placements
+            const c = controllerRef.current;
+            if (c) useGame.getState().setProgress(c.progressCount);
             p.onDirty?.(controllerRef.current!);
           },
           onHoverTarget: () => sounds.play("hover"),
           onPlace: (placed, _total, joined) => {
             sounds.play(joined ? "merge" : "snap");
-            useGame.getState().setProgress(placed);
+            useGame.getState().setProgress(controllerRef.current?.progressCount ?? placed);
             p.onDirty?.(controllerRef.current!);
           },
           onComplete: () => {
@@ -131,10 +134,10 @@ export function GameView(props: GameViewProps) {
         controllerRef.current = controller;
         if (p.config.edgesFirst) controller.setStash(true);
         const total = p.config.rows * p.config.cols;
-        useGame.getState().start(total, controller.placedCount, p.initialElapsed ?? 0);
+        useGame.getState().start(total, controller.progressCount, p.initialElapsed ?? 0);
         setReady(true);
         p.onControllerReady?.(controller);
-        if (controller.placedCount === total) {
+        if (controller.progressCount === total) {
           useGame.getState().complete();
         }
       } catch {
@@ -302,15 +305,17 @@ export function GameView(props: GameViewProps) {
                 </button>
               </div>
               <ToolRow icon={<ImageIcon />} label="Preview" toggled={previewOpen} onClick={() => setPreviewOpen((o) => !o)} />
-              <ToolRow
-                icon={<GhostIcon />}
-                label="Ghost image"
-                toggled={ghost}
-                onClick={() => {
-                  setGhost(!ghost);
-                  controllerRef.current?.setOptions({ ghost: !ghost });
-                }}
-              />
+              {props.config.boardMode !== "freeform" && (
+                <ToolRow
+                  icon={<GhostIcon />}
+                  label="Ghost image"
+                  toggled={ghost}
+                  onClick={() => {
+                    setGhost(!ghost);
+                    controllerRef.current?.setOptions({ ghost: !ghost });
+                  }}
+                />
+              )}
               <ToolRow
                 icon={<FrameIcon />}
                 label="Show edges"
