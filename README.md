@@ -57,8 +57,6 @@ src/
 convex/       Schema + rooms/pieces/presence/chat functions.
 ```
 
-Key decisions are documented in [docs/superpowers/specs/2026-07-03-jigsaw-jam-design.md](docs/superpowers/specs/2026-07-03-jigsaw-jam-design.md); the improvement backlog lives in [docs/BACKLOG.md](docs/BACKLOG.md).
-
 ## Scripts
 
 ```bash
