@@ -59,6 +59,25 @@ describe("createGeometry", () => {
     }
   });
 
+  test("tab shapes vary between edges (size, position, bulb height)", () => {
+    const g = createGeometry(config, 9, 1200, 800);
+    // interior horizontal edges: measure tab half-width (|toy| of the first
+    // cubic ≈ t) and bulb apex height (|c1y| of the bulb cubic ≈ bulb·t)
+    const widths: number[] = [];
+    const apexes: number[] = [];
+    for (let r = 1; r < config.rows; r++) {
+      for (let c = 0; c < config.cols; c++) {
+        const cubics = g.horizontal[r]![c]!.cubics;
+        const y0 = g.horizontal[r]![c]!.from.y;
+        widths.push(Math.abs(cubics[0]!.to.y - y0));
+        apexes.push(Math.abs(cubics[1]!.c1.y - y0));
+      }
+    }
+    // wide per-edge parameter ranges → real spread, not near-identical tabs
+    expect(Math.max(...widths) - Math.min(...widths)).toBeGreaterThan(g.cellH * 0.02);
+    expect(Math.max(...apexes) - Math.min(...apexes)).toBeGreaterThan(g.cellH * 0.05);
+  });
+
   test("square shape has no curved edges", () => {
     const g = createGeometry({ ...config, shape: "square" }, 1, 1200, 800);
     for (const row of [...g.horizontal, ...g.vertical]) {

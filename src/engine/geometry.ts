@@ -16,10 +16,13 @@ interface UnitCubic {
 }
 
 function unitTabCurve(rng: () => number): UnitCubic[] {
-  const t = range(rng, 0.09, 0.115); // tab half-width / height unit
+  // Per-edge cut personality — wide ranges so neighbouring cuts rarely twin up.
+  const t = range(rng, 0.08, 0.13); // tab half-width (neck size)
+  const bulb = range(rng, 2.6, 3.4); // bulb height, in units of t (was fixed 3)
+  const ear = range(rng, 1.6, 2.4); // bulb roundness / ear spread, in units of t (was fixed 2)
+  const b = range(rng, -0.08, 0.08); // tab centre shifted along the edge
   const j = 0.035; // organic jitter
   const a = range(rng, -j, j);
-  const b = range(rng, -j, j);
   const c = range(rng, -j, j);
   const d = range(rng, -j, j);
   const e = range(rng, -j, j);
@@ -28,10 +31,10 @@ function unitTabCurve(rng: () => number): UnitCubic[] {
   return [
     { c1x: 0.2, c1y: s(a), c2x: 0.5 + b + d, c2y: s(-t + c), tox: 0.5 - t + b, toy: s(t + c) },
     {
-      c1x: 0.5 - 2 * t + b - d,
-      c1y: s(3 * t + c),
-      c2x: 0.5 + 2 * t + b - d,
-      c2y: s(3 * t + c),
+      c1x: 0.5 - ear * t + b - d,
+      c1y: s(bulb * t + c),
+      c2x: 0.5 + ear * t + b - d,
+      c2y: s(bulb * t + c),
       tox: 0.5 + t + b,
       toy: s(t + c),
     },
@@ -108,8 +111,9 @@ export function createGeometry(
     height,
     cellW,
     cellH,
-    // Max tab extent is 3t + jitter ≈ 0.39 of the perpendicular cell size.
-    margin: 0.42,
+    // Max tab extent is bulb·t + jitter ≈ 3.4·0.13 + 0.035 ≈ 0.48 of the
+    // perpendicular cell size (control-point bound; the curve stays inside).
+    margin: 0.48,
     horizontal,
     vertical,
   };
