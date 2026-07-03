@@ -224,6 +224,17 @@ export function GameView(props: GameViewProps) {
 
       {/* ------------------------------------------------ zen mode restore */}
       <AnimatePresence>
+        {uiHidden && !props.config.casual && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            aria-label="Elapsed time"
+            className="glass absolute top-3 left-1/2 z-30 -translate-x-1/2 rounded-2xl px-3 py-1.5 text-xs font-bold text-secondary opacity-60 shadow-soft tabular-nums"
+          >
+            ⏱ {formatElapsed(game.elapsed)}
+          </motion.div>
+        )}
         {uiHidden && (
           <motion.button
             initial={{ opacity: 0, scale: 0.8 }}
