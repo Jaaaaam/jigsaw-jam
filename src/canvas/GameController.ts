@@ -773,16 +773,21 @@ export class GameController {
   }
 
   private bakePiece(p: PieceState): void {
+    // Placed pieces flatten into the picture: bake the raw clipped image with
+    // only a whisper of a seam, not the beveled/shadowed loose-piece sprite.
     const sprite = this.sprites[p.id]!;
     const s = this.placedLayer.width / this.geom.width;
-    this.placedCtx.setTransform(1, 0, 0, 1, 0, 0);
-    this.placedCtx.drawImage(
-      sprite.canvas,
-      (p.correct.x - sprite.mx) * s,
-      (p.correct.y - sprite.my) * s,
-      (this.geom.cellW + 2 * sprite.mx) * s,
-      (this.geom.cellH + 2 * sprite.my) * s,
-    );
+    const ctx = this.placedCtx;
+    ctx.save();
+    // cell-local coordinates at layer resolution — sprite.path is cell-local
+    ctx.setTransform(s, 0, 0, s, p.correct.x * s, p.correct.y * s);
+    ctx.clip(sprite.path);
+    ctx.drawImage(this.image, -p.correct.x, -p.correct.y);
+    const rim = Math.max(1.4, Math.min(this.geom.cellW, this.geom.cellH) * 0.02);
+    ctx.strokeStyle = "rgba(25,15,45,0.14)";
+    ctx.lineWidth = rim * 0.6;
+    ctx.stroke(sprite.path);
+    ctx.restore();
   }
 
   // ----------------------------------------------------------- animation
