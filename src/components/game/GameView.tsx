@@ -38,6 +38,14 @@ export interface GameViewProps {
   topBarExtra?: ReactNode;
   /** Shared room: hides tools that would stomp other players' work (shuffle). */
   multiplayer?: boolean;
+  /** Multiplayer: whether the local player is the room host. */
+  isHost?: boolean;
+  /** Multiplayer: host-controlled room settings (single source of truth). */
+  hostSettings?: { snapGuide: boolean; edgesFirst: boolean };
+  /** Multiplayer host toggled a room setting. */
+  onHostSettingsChange?: (s: { snapGuide: boolean; edgesFirst: boolean }) => void;
+  /** Multiplayer host pressed Hint (broadcast instead of local pulse). */
+  onHostHint?: () => void;
   completionExtra?: ReactNode;
   canPause?: boolean;
 }
@@ -63,6 +71,7 @@ export function GameView(props: GameViewProps) {
   const [uiHidden, setUiHidden] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
+  const [edgesDoneToast, setEdgesDoneToast] = useState(false);
 
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -102,6 +111,12 @@ export function GameView(props: GameViewProps) {
             p.onDirty?.(controllerRef.current!);
           },
           onZoomChange: (z) => useGame.getState().setZoom(z),
+          onEdgesDone: () => {
+            sounds.play("whoosh");
+            setStash(false);
+            setEdgesDoneToast(true);
+            window.setTimeout(() => setEdgesDoneToast(false), 3000);
+          },
         };
         // Compose local UI handlers with external (multiplayer) ones so both fire.
         const events: ControllerEvents = { ...local };
@@ -128,6 +143,7 @@ export function GameView(props: GameViewProps) {
             boardColor: useSettings.getState().boardColor,
             boardTexture: useSettings.getState().boardTexture,
             placedSeam: useSettings.getState().placedSeam,
+            reducedMotion: useSettings.getState().reducedMotion,
             rotationEnabled: p.config.rotationEnabled,
             // top bar and bottom zoom bar overlay the canvas — keep the
             // initial fit clear of them
@@ -174,10 +190,11 @@ export function GameView(props: GameViewProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // board colour / texture / seam follow settings
+  // board colour / texture / seam / motion follow settings
+  const reducedMotion = useSettings((s) => s.reducedMotion);
   useEffect(() => {
-    controllerRef.current?.setOptions({ boardColor, boardTexture, placedSeam });
-  }, [boardColor, boardTexture, placedSeam, ready]);
+    controllerRef.current?.setOptions({ boardColor, boardTexture, placedSeam, reducedMotion });
+  }, [boardColor, boardTexture, placedSeam, reducedMotion, ready]);
 
   const togglePause = useCallback(() => {
     const next = !useGame.getState().paused;
@@ -348,26 +365,51 @@ export function GameView(props: GameViewProps) {
                   controllerRef.current?.setOptions({ edgeHighlight: !edgeGlow });
                 }}
               />
-              <ToolRow
-                icon={<TargetIcon />}
-                label="Snap guide"
-                toggled={snapGuide}
-                onClick={() => {
-                  setSnapGuide(!snapGuide);
-                  controllerRef.current?.setOptions({ snapGuide: !snapGuide });
-                }}
-              />
-              <ToolRow
-                icon={<LayersIcon />}
-                label="Edges first"
-                toggled={stash}
-                onClick={() => {
-                  setStash(!stash);
-                  controllerRef.current?.setStash(!stash);
-                }}
-              />
+              {/* room-wide play settings: only the host may steer them */}
+              {(!props.multiplayer || props.isHost) && (
+                <ToolRow
+                  icon={<TargetIcon />}
+                  label="Snap guide"
+                  toggled={props.multiplayer ? (props.hostSettings?.snapGuide ?? true) : snapGuide}
+                  onClick={() => {
+                    if (props.multiplayer) {
+                      const s = props.hostSettings ?? { snapGuide: true, edgesFirst: props.config.edgesFirst };
+                      props.onHostSettingsChange?.({ ...s, snapGuide: !s.snapGuide });
+                    } else {
+                      setSnapGuide(!snapGuide);
+                      controllerRef.current?.setOptions({ snapGuide: !snapGuide });
+                    }
+                  }}
+                />
+              )}
+              {(!props.multiplayer || props.isHost) && (
+                <ToolRow
+                  icon={<LayersIcon />}
+                  label="Edges first"
+                  toggled={props.multiplayer ? (props.hostSettings?.edgesFirst ?? props.config.edgesFirst) : stash}
+                  onClick={() => {
+                    if (props.multiplayer) {
+                      const s = props.hostSettings ?? { snapGuide: true, edgesFirst: props.config.edgesFirst };
+                      props.onHostSettingsChange?.({ ...s, edgesFirst: !s.edgesFirst });
+                    } else {
+                      setStash(!stash);
+                      controllerRef.current?.setStash(!stash);
+                    }
+                  }}
+                />
+              )}
               <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
-              <ToolRow icon={<BulbIcon />} label="Hint" onClick={() => { controllerRef.current?.hint(); sounds.play("pop"); }} />
+              {(!props.multiplayer || props.isHost) && (
+                <ToolRow
+                  icon={<BulbIcon />}
+                  label="Hint"
+                  onClick={() => {
+                    if (props.multiplayer) props.onHostHint?.();
+                    else controllerRef.current?.hint();
+                    sounds.play("pop");
+                  }}
+                />
+              )}
               {/* no bulk re-arranging with friends — moving everyone's sorted
                   pieces from under them is a rotten surprise */}
               {!props.multiplayer && (
@@ -376,7 +418,10 @@ export function GameView(props: GameViewProps) {
                   <ToolRow icon={<ShuffleIcon />} label="Shuffle" onClick={() => { controllerRef.current?.shuffle(); sounds.play("whoosh"); }} />
                 </>
               )}
-              <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
+              {/* guests have no action rows above — skip the second divider */}
+              {(!props.multiplayer || props.isHost) && (
+                <div className="mx-2 my-1.5 border-t border-black/10 dark:border-white/10" />
+              )}
               <ToolRow icon={<LockIcon />} label="Lock view" toggled={viewLocked} onClick={toggleViewLock} />
               <ToolRow icon={<EyeOffIcon />} label="Hide interface" onClick={() => setUiHidden(true)} />
               <ToolRow icon={<GearIcon />} label="Settings" onClick={() => setSettingsOpen(true)} />
@@ -570,6 +615,20 @@ export function GameView(props: GameViewProps) {
             <Button size="lg" onClick={togglePause}>
               ▶ Resume
             </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ------------------------------------------------ edges-done toast */}
+      <AnimatePresence>
+        {edgesDoneToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            className="glass-strong absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-2xl px-5 py-3 text-sm font-extrabold text-primary shadow-float"
+          >
+            Edges done — here come the rest! 🎉
           </motion.div>
         )}
       </AnimatePresence>

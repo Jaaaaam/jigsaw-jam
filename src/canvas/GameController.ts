@@ -1,5 +1,5 @@
 import { createGeometry, spriteMargins } from "@/engine/geometry";
-import { applySnapshot, createPieces, neighborIds, scatterPositions, toSnapshot } from "@/engine/puzzle";
+import { applySnapshot, createPieces, edgesComplete, neighborIds, scatterPositions, toSnapshot } from "@/engine/puzzle";
 import type { PieceSnapshot, PieceState, PuzzleConfig, PuzzleGeometry, Vec2 } from "@/engine/types";
 import {
   computeSpriteScale,
@@ -24,6 +24,8 @@ export interface ControllerEvents {
   onClaim?: (pieceIds: number[]) => void;
   onRelease?: (snapshots: PieceSnapshot[]) => void;
   onZoomChange?: (zoom: number) => void;
+  /** Edges-first stash auto-revealed because the edges are done. */
+  onEdgesDone?: () => void;
 }
 
 export type BoardTextureId = "none" | "felt" | "wood" | "linen";
@@ -40,6 +42,8 @@ export interface ControllerOptions {
   placedSeam?: number;
   /** Screen-px bands covered by HUD chrome; fitToScene keeps pieces clear of them. */
   viewInsets?: { top: number; bottom: number };
+  /** Skip staggered entrances; reveals land instantly. */
+  reducedMotion?: boolean;
 }
 
 interface Tween {
@@ -113,6 +117,8 @@ export class GameController {
   private tableRect = { x: 0, y: 0, w: 0, h: 0 };
   private remoteLocks = new Map<number, RemoteLock>();
   private stashedIds = new Set<number>();
+  /** Per-piece entrance animation after the stash auto-reveals. */
+  private reveals = new Map<number, { start: number; delay: number }>();
   private completed = false;
   paused = false;
   /** Blocks pan/zoom gestures and keys; explicit UI buttons still work. */
@@ -372,13 +378,45 @@ export class GameController {
 
   setStash(on: boolean): void {
     this.stashedIds.clear();
-    if (on) {
+    // stashing after the edges are already done would hide pieces the
+    // player is actively working with — treat it as a no-op
+    if (on && !edgesComplete(this.pieces, this.freeform)) {
       for (const p of this.pieces) {
         // solo interior pieces only; grouped or placed stay visible
         if (!p.isEdge && !p.placed && this.groups.get(p.groupId)!.size === 1) {
           this.stashedIds.add(p.id);
         }
       }
+    }
+    this.dirty = true;
+  }
+
+  /** After any placement/merge: pour the stash onto the table if edges are done. */
+  private maybeAutoReveal(): void {
+    if (this.stashedIds.size === 0) return;
+    if (!edgesComplete(this.pieces, this.freeform)) return;
+    this.revealStash();
+    this.events.onEdgesDone?.();
+  }
+
+  /** Un-stash with a staggered pop-in, radiating out from the board centre. */
+  private revealStash(): void {
+    const ids = [...this.stashedIds];
+    this.stashedIds.clear();
+    if (ids.length === 0) return;
+    if (!this.opts.reducedMotion) {
+      const cx = this.freeform ? this.tableRect.x + this.tableRect.w / 2 : this.geom.width / 2;
+      const cy = this.freeform ? this.tableRect.y + this.tableRect.h / 2 : this.geom.height / 2;
+      const byDist = ids
+        .map((id) => {
+          const p = this.pieces[id]!;
+          return { id, d: Math.hypot(p.pos.x - cx, p.pos.y - cy) };
+        })
+        .sort((a, b) => a.d - b.d);
+      // ~12ms per piece, capped so huge puzzles finish pouring in ~1.2s
+      const step = Math.min(12, 1200 / byDist.length);
+      const now = performance.now();
+      byDist.forEach(({ id }, i) => this.reveals.set(id, { start: now, delay: i * step }));
     }
     this.dirty = true;
   }
@@ -446,12 +484,12 @@ export class GameController {
     this.dirty = true;
   }
 
-  hint(): void {
+  /** Pick the piece (and freeform partner) a hint should ring — no visuals. */
+  chooseHint(): { pieceId: number; partnerId?: number } | null {
     const candidates = this.pieces.filter((p) => !p.placed && !this.stashedIds.has(p.id));
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) return null;
     // prefer edge pieces, then lowest id for stability
     candidates.sort((a, b) => Number(b.isEdge) - Number(a.isEdge) || a.id - b.id);
-    this.hintPartner = null;
     if (this.freeform) {
       // no board slot to point at — ring a piece and a grid-neighbour it can
       // join, preferring pairs that extend the biggest assembled cluster
@@ -465,18 +503,26 @@ export class GameController {
         const partner = neighborIds(this.geom, p)
           .map((id) => this.pieces[id]!)
           .find((n) => n.groupId !== p.groupId && !this.stashedIds.has(n.id));
-        if (partner) {
-          this.hintPiece = p;
-          this.hintPartner = partner;
-          break;
-        }
+        if (partner) return { pieceId: p.id, partnerId: partner.id };
       }
-      if (!this.hintPartner) return;
-    } else {
-      this.hintPiece = candidates[0]!;
+      return null;
     }
+    return { pieceId: candidates[0]!.id };
+  }
+
+  /** Ring the given piece (and optional partner) with the hint pulse. */
+  showHint(pieceId: number, partnerId?: number): void {
+    const p = this.pieces[pieceId];
+    if (!p || p.placed) return;
+    this.hintPiece = p;
+    this.hintPartner = partnerId !== undefined ? (this.pieces[partnerId] ?? null) : null;
     this.hintStart = performance.now();
     this.dirty = true;
+  }
+
+  hint(): void {
+    const choice = this.chooseHint();
+    if (choice) this.showHint(choice.pieceId, choice.partnerId);
   }
 
   rotateHovered(clientX: number, clientY: number): void {
@@ -542,6 +588,7 @@ export class GameController {
       this.placedCache = null;
       this.dirty = true;
       this.checkComplete(false);
+      this.maybeAutoReveal();
     }
   }
 
@@ -816,6 +863,7 @@ export class GameController {
         this.events.onPlace?.(this.placedCount, total, joined);
         this.events.onRelease?.(members.map(toSnapshot));
         this.checkComplete(true);
+        this.maybeAutoReveal();
       }, 150);
       // no onDrop here — the snap/join sound is the drop feedback
       this.clusterSprites.delete(groupId); // placed groups render from the baked slab
@@ -830,6 +878,7 @@ export class GameController {
       this.events.onMerge?.();
       // in freeform, joins are the only progress — completion happens here
       this.checkComplete(true);
+      this.maybeAutoReveal();
     } else {
       this.events.onDrop?.();
     }
@@ -969,6 +1018,7 @@ export class GameController {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now();
     this.stepTweens(now);
+    if (this.reveals.size > 0) this.dirty = true;
     const hintActive = this.hintPiece && now - this.hintStart < 3200;
     if (hintActive) this.dirty = true;
     if (!this.dirty) return;
@@ -1092,7 +1142,7 @@ export class GameController {
     for (const u of units) {
       const dragged = u.ref.groupId === draggedGroup;
       if (u.cluster) this.drawCluster(ctx, u.cluster, dragged);
-      else this.drawPiece(ctx, u.ref, dragged);
+      else this.drawPiece(ctx, u.ref, dragged, now);
     }
 
     // Hint pulse
@@ -1140,13 +1190,36 @@ export class GameController {
     }
   }
 
-  private drawPiece(ctx: CanvasRenderingContext2D, p: PieceState, dragged: boolean): void {
+  /** 0..1 entrance progress for a revealing piece; null = not revealing. */
+  private revealProgress(id: number, now: number): number | null {
+    const r = this.reveals.get(id);
+    if (!r) return null;
+    const k = (now - r.start - r.delay) / 350;
+    if (k >= 1) {
+      this.reveals.delete(id);
+      return null;
+    }
+    return Math.max(0, k);
+  }
+
+  private drawPiece(ctx: CanvasRenderingContext2D, p: PieceState, dragged: boolean, now: number): void {
     const sprite = this.sprites[p.id]!;
     const cw = this.geom.cellW;
     const ch = this.geom.cellH;
     ctx.save();
     ctx.translate(p.pos.x + cw / 2, p.pos.y + ch / 2);
     if (p.rot) ctx.rotate((p.rot * Math.PI) / 2);
+    const reveal = this.revealProgress(p.id, now);
+    if (reveal !== null) {
+      // staggered entrance: pieces still waiting their turn stay invisible
+      if (reveal === 0) {
+        ctx.restore();
+        return;
+      }
+      const e = 1 - Math.pow(1 - reveal, 3);
+      ctx.globalAlpha = e;
+      ctx.scale(0.3 + 0.7 * e, 0.3 + 0.7 * e);
+    }
     if (dragged) {
       ctx.scale(LIFT_SCALE, LIFT_SCALE);
       ctx.shadowColor = "rgba(25,18,14,0.4)";

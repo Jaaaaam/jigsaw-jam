@@ -22,6 +22,20 @@ export const puzzleConfigValidator = v.object({
 });
 export type PuzzleConfigArg = Infer<typeof puzzleConfigValidator>;
 
+/** Host-controlled, room-wide play settings. */
+export const roomSettingsValidator = v.object({
+  snapGuide: v.boolean(),
+  edgesFirst: v.boolean(),
+});
+export type RoomSettingsArg = Infer<typeof roomSettingsValidator>;
+
+/** Transient host hint broadcast, overwritten each time. */
+export const roomHintValidator = v.object({
+  pieceId: v.number(),
+  partnerId: v.optional(v.number()),
+  at: v.number(),
+});
+
 export const initialPieceValidator = v.object({
   pieceId: v.number(),
   x: v.number(),
@@ -71,6 +85,15 @@ export type CompleteRoomArgs = RoomArgs & {
 export type RestartRoomArgs = RoomSessionArgs & {
   seed: number;
   initialPieces: InitialPieceArg[];
+};
+
+export type UpdateSettingsArgs = RoomSessionArgs & {
+  settings: RoomSettingsArg;
+};
+
+export type BroadcastHintArgs = RoomSessionArgs & {
+  pieceId: number;
+  partnerId?: number;
 };
 
 export type ClaimPiecesArgs = RoomSessionArgs & {

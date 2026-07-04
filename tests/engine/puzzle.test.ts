@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createGeometry } from "@/engine/geometry";
-import { applySnapshot, createPieces, neighborIds, scatterPositions, toSnapshot } from "@/engine/puzzle";
+import { applySnapshot, createPieces, edgesComplete, neighborIds, scatterPositions, toSnapshot } from "@/engine/puzzle";
 import { DEFAULT_CONFIG, type PuzzleConfig } from "@/engine/types";
 
 const config: PuzzleConfig = { ...DEFAULT_CONFIG, rows: 3, cols: 4 };
@@ -92,5 +92,34 @@ describe("neighborIds", () => {
   test("interior piece has four neighbours", () => {
     const pieces = createPieces(geom);
     expect(neighborIds(geom, pieces[5]!).sort((a, b) => a - b)).toEqual([1, 4, 6, 9]);
+  });
+});
+
+describe("edgesComplete", () => {
+  const pc = (isEdge: boolean, placed: boolean, groupId: number) => ({ isEdge, placed, groupId });
+
+  test("classic: true only when every edge piece is placed", () => {
+    const pieces = [pc(true, true, 0), pc(true, true, 1), pc(false, false, 2)];
+    expect(edgesComplete(pieces, false)).toBe(true);
+  });
+
+  test("classic: false while any edge piece is loose", () => {
+    const pieces = [pc(true, true, 0), pc(true, false, 1), pc(false, false, 2)];
+    expect(edgesComplete(pieces, false)).toBe(false);
+  });
+
+  test("freeform: true when all edge pieces share one group", () => {
+    const pieces = [pc(true, false, 7), pc(true, false, 7), pc(false, false, 2)];
+    expect(edgesComplete(pieces, true)).toBe(true);
+  });
+
+  test("freeform: false when the border sits in two chunks", () => {
+    const pieces = [pc(true, false, 7), pc(true, false, 8), pc(false, false, 2)];
+    expect(edgesComplete(pieces, true)).toBe(false);
+  });
+
+  test("no edge pieces at all counts as not complete", () => {
+    expect(edgesComplete([pc(false, false, 0)], false)).toBe(false);
+    expect(edgesComplete([], true)).toBe(false);
   });
 });

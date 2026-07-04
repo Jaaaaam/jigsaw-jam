@@ -121,3 +121,27 @@ export function neighborIds(geom: PuzzleGeometry, piece: PieceState): number[] {
   if (piece.col < cols - 1) out.push(piece.id + 1);
   return out;
 }
+
+/**
+ * "Edges first" is over: classic board — every edge piece placed;
+ * freeform — every edge piece joined into one single border group.
+ * No edge pieces at all never counts as complete.
+ */
+export function edgesComplete(
+  pieces: Array<Pick<PieceState, "isEdge" | "placed" | "groupId">>,
+  freeform: boolean,
+): boolean {
+  let sawEdge = false;
+  let borderGroup: number | null = null;
+  for (const p of pieces) {
+    if (!p.isEdge) continue;
+    sawEdge = true;
+    if (freeform) {
+      if (borderGroup === null) borderGroup = p.groupId;
+      else if (p.groupId !== borderGroup) return false;
+    } else if (!p.placed) {
+      return false;
+    }
+  }
+  return sawEdge;
+}

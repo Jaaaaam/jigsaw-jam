@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { puzzleConfigValidator } from "./types";
+import { puzzleConfigValidator, roomHintValidator, roomSettingsValidator } from "./types";
 
 export default defineSchema({
   rooms: defineTable({
@@ -14,6 +14,10 @@ export default defineSchema({
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
     elapsedAtComplete: v.optional(v.number()),
+    // host-controlled, room-wide play settings; absent on legacy rooms
+    settings: v.optional(roomSettingsValidator),
+    // transient host hint broadcast, overwritten each time
+    hint: v.optional(roomHintValidator),
   }).index("by_code", ["code"]),
 
   pieces: defineTable({

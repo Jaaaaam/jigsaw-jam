@@ -1,7 +1,14 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { initialPieceValidator, puzzleConfigValidator } from "./types";
-import type { CompleteRoomArgs, CreateRoomArgs, RestartRoomArgs, RoomCodeArgs } from "./types";
+import { initialPieceValidator, puzzleConfigValidator, roomSettingsValidator } from "./types";
+import type {
+  BroadcastHintArgs,
+  CompleteRoomArgs,
+  CreateRoomArgs,
+  RestartRoomArgs,
+  RoomCodeArgs,
+  UpdateSettingsArgs,
+} from "./types";
 
 function makeCode(): string {
   // no 0/O/1/I — codes get read aloud
@@ -121,4 +128,39 @@ export const restart = mutation({
     initialPieces: v.array(initialPieceValidator),
   },
   handler: restartRoomHandler,
+});
+
+/** Host-only: room-wide play settings (snap guide, edges first). */
+export async function updateSettingsHandler(ctx: MutationCtx, args: UpdateSettingsArgs) {
+  const room = await ctx.db.get(args.roomId);
+  if (!room || room.hostSessionId !== args.sessionId) return;
+  await ctx.db.patch(args.roomId, { settings: args.settings });
+}
+
+export const updateSettings = mutation({
+  args: { roomId: v.id("rooms"), sessionId: v.string(), settings: roomSettingsValidator },
+  handler: updateSettingsHandler,
+});
+
+/** Host-only: flash a hint on every player's board. */
+export async function broadcastHintHandler(ctx: MutationCtx, args: BroadcastHintArgs) {
+  const room = await ctx.db.get(args.roomId);
+  if (!room || room.hostSessionId !== args.sessionId) return;
+  await ctx.db.patch(args.roomId, {
+    hint: {
+      pieceId: args.pieceId,
+      ...(args.partnerId !== undefined ? { partnerId: args.partnerId } : {}),
+      at: Date.now(),
+    },
+  });
+}
+
+export const broadcastHint = mutation({
+  args: {
+    roomId: v.id("rooms"),
+    sessionId: v.string(),
+    pieceId: v.number(),
+    partnerId: v.optional(v.number()),
+  },
+  handler: broadcastHintHandler,
 });

@@ -141,6 +141,8 @@ interface RoomDoc {
   status: "playing" | "completed";
   createdAt: number;
   elapsedAtComplete?: number;
+  settings?: { snapGuide: boolean; edgesFirst: boolean };
+  hint?: { pieceId: number; partnerId?: number; at: number };
 }
 
 function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
@@ -162,12 +164,17 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
   const complete = useMutation(api.rooms.complete);
   const restart = useMutation(api.rooms.restart);
   const sendMessage = useMutation(api.chat.send);
+  const updateSettings = useMutation(api.rooms.updateSettings);
+  const broadcastHint = useMutation(api.rooms.broadcastHint);
 
   const [controller, setController] = useState<GameController | null>(null);
   const controllerRef = useRef<GameController | null>(null);
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
 
   const isHost = room.hostSessionId === sessionId;
+
+  // room-wide play settings, host-controlled; legacy rooms fall back to config
+  const effectiveSettings = room.settings ?? { snapGuide: true, edgesFirst: room.config.edgesFirst };
 
   // join + heartbeat presence (with cursor piggybacked)
   useEffect(() => {
@@ -246,6 +253,20 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
     controller.setRemoteLocks(locks);
   }, [controller, pieceDocs, playerDocs, sessionId]);
 
+  // host-controlled room settings — one source of truth for every board
+  useEffect(() => {
+    if (!controller) return;
+    controller.setOptions({ snapGuide: effectiveSettings.snapGuide });
+    controller.setStash(effectiveSettings.edgesFirst);
+  }, [controller, effectiveSettings.snapGuide, effectiveSettings.edgesFirst]);
+
+  // host hint broadcast — flash the pulse on every board, skip stale ones
+  useEffect(() => {
+    if (!controller || !room.hint) return;
+    if (Date.now() - room.hint.at > 3200) return;
+    controller.showHint(room.hint.pieceId, room.hint.partnerId);
+  }, [controller, room.hint]);
+
   const players: RoomPlayer[] = useMemo(
     () =>
       (playerDocs ?? []).map((p) => ({
@@ -283,9 +304,31 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
         void release({ roomId, sessionId, snapshots: snapshots.map(toWire) }).catch(() => undefined),
       onComplete: () =>
         void complete({ roomId, elapsed: Date.now() - room.createdAt }).catch(() => undefined),
+      onEdgesDone: () => {
+        // keep the room doc truthful so late joiners don't boot stashed
+        if (isHost) {
+          void updateSettings({
+            roomId,
+            sessionId,
+            settings: { snapGuide: effectiveSettings.snapGuide, edgesFirst: false },
+          }).catch(() => undefined);
+        }
+      },
     }),
-    [claim, move, release, complete, roomId, sessionId, room.createdAt],
+    [claim, move, release, complete, updateSettings, roomId, sessionId, room.createdAt, isHost, effectiveSettings.snapGuide],
   );
+
+  const onHostSettingsChange = useCallback(
+    (settings: { snapGuide: boolean; edgesFirst: boolean }) =>
+      void updateSettings({ roomId, sessionId, settings }).catch(() => undefined),
+    [updateSettings, roomId, sessionId],
+  );
+
+  const onHostHint = useCallback(() => {
+    const choice = controllerRef.current?.chooseHint();
+    if (!choice) return;
+    void broadcastHint({ roomId, sessionId, ...choice }).catch(() => undefined);
+  }, [broadcastHint, roomId, sessionId]);
 
   const onRestart = useCallback(() => {
     const seed = randomSeed();
@@ -336,6 +379,10 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
       }}
       onRestart={isHost ? onRestart : undefined}
       multiplayer
+      isHost={isHost}
+      hostSettings={effectiveSettings}
+      onHostSettingsChange={onHostSettingsChange}
+      onHostHint={onHostHint}
       topBarExtra={
         <PlayersBar players={players} hostSessionId={room.hostSessionId} mySessionId={sessionId} code={room.code} />
       }

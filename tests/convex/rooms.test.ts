@@ -50,4 +50,36 @@ describe("rooms", () => {
     const pieces = await t.query(api.pieces.list, { roomId });
     expect(pieces.find((p) => p.pieceId === 0)).toMatchObject({ x: 1, y: 1, placed: false });
   });
+
+  test("updateSettings is host-only", async () => {
+    const t = newTestBackend();
+    const { roomId, code } = await createTestRoom(t, "host");
+    await t.mutation(api.rooms.updateSettings, {
+      roomId,
+      sessionId: "impostor",
+      settings: { snapGuide: false, edgesFirst: true },
+    });
+    let room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.settings).toBeUndefined();
+    await t.mutation(api.rooms.updateSettings, {
+      roomId,
+      sessionId: "host",
+      settings: { snapGuide: false, edgesFirst: true },
+    });
+    room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.settings).toEqual({ snapGuide: false, edgesFirst: true });
+  });
+
+  test("broadcastHint is host-only and stamps a timestamp", async () => {
+    const t = newTestBackend();
+    const { roomId, code } = await createTestRoom(t, "host");
+    await t.mutation(api.rooms.broadcastHint, { roomId, sessionId: "impostor", pieceId: 1 });
+    let room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.hint).toBeUndefined();
+    await t.mutation(api.rooms.broadcastHint, { roomId, sessionId: "host", pieceId: 1, partnerId: 2 });
+    room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.hint?.pieceId).toBe(1);
+    expect(room?.hint?.partnerId).toBe(2);
+    expect(room?.hint?.at).toBeGreaterThan(0);
+  });
 });
