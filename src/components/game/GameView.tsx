@@ -671,22 +671,45 @@ export function GameView(props: GameViewProps) {
             {!props.config.casual && <> · {formatElapsed(game.elapsed)}</>}
           </p>
           {props.completionExtra}
-          <div className="flex gap-3">
-            {props.onRestart && (
-              <Button variant="secondary" className="flex-1" onClick={props.onRestart}>
-                Play again
-              </Button>
-            )}
-            <Button className="flex-1" onClick={() => navigate("/new")}>
-              New puzzle
-            </Button>
-          </div>
-          <button
-            className="cursor-pointer text-sm font-bold text-tertiary hover:text-secondary"
-            onClick={() => navigate("/")}
-          >
-            Back to menu
-          </button>
+          {props.multiplayer ? (
+            // the room lives on — keep everyone inside it for the next round
+            <>
+              {props.isHost ? (
+                <Button className="w-full" onClick={props.onRestart}>
+                  🚀 Play again — pick the next puzzle
+                </Button>
+              ) : (
+                <p className="text-sm font-semibold text-secondary">
+                  Hang tight — the host can start the next round for everyone.
+                </p>
+              )}
+              <button
+                className="cursor-pointer text-sm font-bold text-tertiary hover:text-secondary"
+                onClick={() => navigate("/")}
+              >
+                Leave room
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex gap-3">
+                {props.onRestart && (
+                  <Button variant="secondary" className="flex-1" onClick={props.onRestart}>
+                    Play again
+                  </Button>
+                )}
+                <Button className="flex-1" onClick={() => navigate("/new")}>
+                  New puzzle
+                </Button>
+              </div>
+              <button
+                className="cursor-pointer text-sm font-bold text-tertiary hover:text-secondary"
+                onClick={() => navigate("/")}
+              >
+                Back to menu
+              </button>
+            </>
+          )}
         </div>
       </Modal>
     </div>
