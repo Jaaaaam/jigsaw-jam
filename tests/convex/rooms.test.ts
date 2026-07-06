@@ -1,6 +1,6 @@
 // @vitest-environment edge-runtime
 import { describe, expect, test } from "vitest";
-import { api, createTestRoom, newTestBackend } from "./helpers";
+import { api, createTestRoom, newTestBackend, testConfig } from "./helpers";
 
 describe("rooms", () => {
   test("create returns a readable 6-char code and inserts pieces", async () => {
@@ -68,6 +68,60 @@ describe("rooms", () => {
     });
     room = await t.query(api.rooms.getByCode, { code });
     expect(room?.settings).toEqual({ snapGuide: false, edgesFirst: true });
+  });
+
+  test("nextRound is host-only and swaps photo, config, seed and pieces", async () => {
+    const t = newTestBackend();
+    const { roomId, code } = await createTestRoom(t, "host");
+    await t.mutation(api.rooms.complete, { roomId, elapsed: 5000 });
+    await t.mutation(api.presence.join, { roomId, sessionId: "host", name: "H", color: "#f00" });
+    await t.mutation(api.pieces.release, {
+      roomId,
+      sessionId: "host",
+      snapshots: [{ pieceId: 0, x: 0, y: 0, rot: 0, groupId: 0, placed: true, z: 1 }],
+    });
+    const nextArgs = {
+      imageUrl: "https://example.com/next.jpg",
+      thumbUrl: "https://example.com/next-thumb.jpg",
+      seed: 99,
+      config: { ...testConfig, rows: 3, cols: 2, edgesFirst: true },
+      // 3x2 round: more pieces than the 2x2 room started with
+      initialPieces: Array.from({ length: 6 }, (_, i) => ({ pieceId: i, x: i * 10, y: 0, rot: 0 })),
+    };
+    // non-host: ignored
+    await t.mutation(api.rooms.nextRound, { roomId, sessionId: "impostor", ...nextArgs });
+    let room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.imageUrl).toBe("https://example.com/img.jpg");
+    // host: applied
+    await t.mutation(api.rooms.nextRound, { roomId, sessionId: "host", ...nextArgs });
+    room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.imageUrl).toBe("https://example.com/next.jpg");
+    expect(room?.seed).toBe(99);
+    expect(room?.config.rows).toBe(3);
+    expect(room?.status).toBe("playing");
+    expect(room?.completedAt).toBeUndefined();
+    expect(room?.elapsedAtComplete).toBeUndefined();
+    expect(room?.choosingAt).toBeUndefined();
+    expect(room?.settings).toEqual({ snapGuide: true, edgesFirst: true });
+    const pieces = await t.query(api.pieces.list, { roomId });
+    expect(pieces).toHaveLength(6);
+    expect(pieces.every((p) => !p.placed)).toBe(true);
+    const players = await t.query(api.presence.listPlayers, { roomId });
+    expect(players.every((p) => p.piecesPlaced === 0)).toBe(true);
+  });
+
+  test("setChoosing is host-only and sets/clears the timestamp", async () => {
+    const t = newTestBackend();
+    const { roomId, code } = await createTestRoom(t, "host");
+    await t.mutation(api.rooms.setChoosing, { roomId, sessionId: "impostor", choosing: true });
+    let room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.choosingAt).toBeUndefined();
+    await t.mutation(api.rooms.setChoosing, { roomId, sessionId: "host", choosing: true });
+    room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.choosingAt).toBeGreaterThan(0);
+    await t.mutation(api.rooms.setChoosing, { roomId, sessionId: "host", choosing: false });
+    room = await t.query(api.rooms.getByCode, { code });
+    expect(room?.choosingAt).toBeUndefined();
   });
 
   test("broadcastHint is host-only and stamps a timestamp", async () => {

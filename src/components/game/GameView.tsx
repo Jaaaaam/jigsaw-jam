@@ -574,8 +574,17 @@ export function GameView(props: GameViewProps) {
           </div>
           <ReducedMotionToggle />
           {props.onRestart && (
-            <Button variant="danger" className="w-full" onClick={() => { setSettingsOpen(false); setConfirmRestart(true); }}>
-              Restart puzzle
+            <Button
+              variant="danger"
+              className="w-full"
+              onClick={() => {
+                setSettingsOpen(false);
+                // multiplayer opens the next-round setup, which has its own cancel
+                if (props.multiplayer) props.onRestart?.();
+                else setConfirmRestart(true);
+              }}
+            >
+              {props.multiplayer ? "New round…" : "Restart puzzle"}
             </Button>
           )}
           <Button variant="secondary" className="w-full" onClick={() => setSettingsOpen(false)}>

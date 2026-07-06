@@ -5,8 +5,10 @@ import type {
   BroadcastHintArgs,
   CompleteRoomArgs,
   CreateRoomArgs,
+  NextRoundArgs,
   RestartRoomArgs,
   RoomCodeArgs,
+  SetChoosingArgs,
   UpdateSettingsArgs,
 } from "./types";
 
@@ -128,6 +130,74 @@ export const restart = mutation({
     initialPieces: v.array(initialPieceValidator),
   },
   handler: restartRoomHandler,
+});
+
+/** Host-only: start the next round with a (possibly) new photo and config. */
+export async function nextRoundHandler(ctx: MutationCtx, args: NextRoundArgs) {
+  const room = await ctx.db.get(args.roomId);
+  if (!room || room.hostSessionId !== args.sessionId) return;
+  await ctx.db.patch(args.roomId, {
+    imageUrl: args.imageUrl,
+    thumbUrl: args.thumbUrl,
+    seed: args.seed,
+    config: args.config,
+    status: "playing",
+    createdAt: Date.now(),
+    completedAt: undefined,
+    elapsedAtComplete: undefined,
+    hint: undefined,
+    choosingAt: undefined,
+    // keep the host's snap-guide preference; edges-first follows the new config
+    settings: { snapGuide: room.settings?.snapGuide ?? true, edgesFirst: args.config.edgesFirst },
+  });
+  // piece count can change between rounds — replace instead of patching in place
+  const pieces = await ctx.db
+    .query("pieces")
+    .withIndex("by_room", (q) => q.eq("roomId", args.roomId))
+    .collect();
+  for (const piece of pieces) await ctx.db.delete(piece._id);
+  for (const p of args.initialPieces) {
+    await ctx.db.insert("pieces", {
+      roomId: args.roomId,
+      pieceId: p.pieceId,
+      x: p.x,
+      y: p.y,
+      rot: p.rot,
+      groupId: p.pieceId,
+      placed: false,
+      z: p.pieceId,
+    });
+  }
+  const players = await ctx.db
+    .query("players")
+    .withIndex("by_room", (q) => q.eq("roomId", args.roomId))
+    .collect();
+  for (const p of players) await ctx.db.patch(p._id, { piecesPlaced: 0 });
+}
+
+export const nextRound = mutation({
+  args: {
+    roomId: v.id("rooms"),
+    sessionId: v.string(),
+    imageUrl: v.string(),
+    thumbUrl: v.string(),
+    seed: v.number(),
+    config: puzzleConfigValidator,
+    initialPieces: v.array(initialPieceValidator),
+  },
+  handler: nextRoundHandler,
+});
+
+/** Host-only: broadcast that the host is (or is done) picking the next round. */
+export async function setChoosingHandler(ctx: MutationCtx, args: SetChoosingArgs) {
+  const room = await ctx.db.get(args.roomId);
+  if (!room || room.hostSessionId !== args.sessionId) return;
+  await ctx.db.patch(args.roomId, { choosingAt: args.choosing ? Date.now() : undefined });
+}
+
+export const setChoosing = mutation({
+  args: { roomId: v.id("rooms"), sessionId: v.string(), choosing: v.boolean() },
+  handler: setChoosingHandler,
 });
 
 /** Host-only: room-wide play settings (snap guide, edges first). */

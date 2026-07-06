@@ -91,6 +91,18 @@ export type UpdateSettingsArgs = RoomSessionArgs & {
   settings: RoomSettingsArg;
 };
 
+export type NextRoundArgs = RoomSessionArgs & {
+  imageUrl: string;
+  thumbUrl: string;
+  seed: number;
+  config: PuzzleConfigArg;
+  initialPieces: InitialPieceArg[];
+};
+
+export type SetChoosingArgs = RoomSessionArgs & {
+  choosing: boolean;
+};
+
 export type BroadcastHintArgs = RoomSessionArgs & {
   pieceId: number;
   partnerId?: number;

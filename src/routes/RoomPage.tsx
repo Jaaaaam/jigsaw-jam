@@ -13,7 +13,8 @@ import { randomSeed } from "@/engine/random";
 import { scatterPositions } from "@/engine/puzzle";
 import type { PieceSnapshot, PuzzleConfig } from "@/engine/types";
 import { multiplayerAvailable } from "@/lib/convexClient";
-import type { PuzzleImage } from "@/services/images";
+import { NextRoundModal } from "@/components/setup/NextRoundModal";
+import { pushRecent, type PuzzleImage } from "@/services/images";
 import { colorForSession, getSessionId, randomName } from "@/services/session";
 import { useSettings } from "@/stores/settingsStore";
 import { PageShell } from "@/components/PageShell";
@@ -143,6 +144,7 @@ interface RoomDoc {
   elapsedAtComplete?: number;
   settings?: { snapGuide: boolean; edgesFirst: boolean };
   hint?: { pieceId: number; partnerId?: number; at: number };
+  choosingAt?: number;
 }
 
 function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
@@ -162,7 +164,8 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
   const move = useMutation(api.pieces.move);
   const release = useMutation(api.pieces.release);
   const complete = useMutation(api.rooms.complete);
-  const restart = useMutation(api.rooms.restart);
+  const nextRound = useMutation(api.rooms.nextRound);
+  const setChoosing = useMutation(api.rooms.setChoosing);
   const sendMessage = useMutation(api.chat.send);
   const updateSettings = useMutation(api.rooms.updateSettings);
   const broadcastHint = useMutation(api.rooms.broadcastHint);
@@ -330,21 +333,55 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
     void broadcastHint({ roomId, sessionId, ...choice }).catch(() => undefined);
   }, [broadcastHint, roomId, sessionId]);
 
-  const onRestart = useCallback(() => {
-    const seed = randomSeed();
-    const img = new Image();
-    // dimensions must match what clients load; use current controller's geometry
-    const c = controllerRef.current;
-    const w = c?.geom.width ?? 1600;
-    const h = c?.geom.height ?? 1200;
-    void img; // (image not needed — geometry width/height suffice)
-    void restart({
-      roomId,
-      sessionId,
-      seed,
-      initialPieces: initialPiecesFor(room.config, seed, w, h),
-    });
-  }, [restart, roomId, sessionId, room.config]);
+  // "Play again" / "Start over" open the next-round setup instead of restarting directly
+  const [nextRoundOpen, setNextRoundOpen] = useState(false);
+  const [nextRoundBusy, setNextRoundBusy] = useState(false);
+
+  const openNextRound = useCallback(() => {
+    setNextRoundOpen(true);
+    void setChoosing({ roomId, sessionId, choosing: true }).catch(() => undefined);
+  }, [setChoosing, roomId, sessionId]);
+
+  const closeNextRound = useCallback(() => {
+    setNextRoundOpen(false);
+    void setChoosing({ roomId, sessionId, choosing: false }).catch(() => undefined);
+  }, [setChoosing, roomId, sessionId]);
+
+  const confirmNextRound = useCallback(
+    async (image: PuzzleImage | null, config: PuzzleConfig) => {
+      const seed = randomSeed();
+      let w: number;
+      let h: number;
+      if (image) {
+        // provider-reported dimensions capped like loadPuzzleBitmap does — must
+        // match what every client will actually load
+        const scale = Math.min(1, 2200 / Math.max(image.width, image.height));
+        w = Math.round(image.width * scale);
+        h = Math.round(image.height * scale);
+        if (image.provider !== "upload") pushRecent(image);
+      } else {
+        // same photo: the current controller's geometry already has the answer
+        w = controllerRef.current?.geom.width ?? 1600;
+        h = controllerRef.current?.geom.height ?? 1200;
+      }
+      setNextRoundBusy(true);
+      try {
+        await nextRound({
+          roomId,
+          sessionId,
+          imageUrl: image?.url ?? room.imageUrl,
+          thumbUrl: image?.thumbUrl ?? room.thumbUrl,
+          seed,
+          config,
+          initialPieces: initialPiecesFor(config, seed, w, h),
+        });
+        setNextRoundOpen(false); // nextRound clears choosingAt itself
+      } finally {
+        setNextRoundBusy(false);
+      }
+    },
+    [nextRound, roomId, sessionId, room.imageUrl, room.thumbUrl],
+  );
 
   // wait for first piece payload before booting the canvas
   if (!pieceDocs) {
@@ -360,7 +397,7 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
 
   return (
     <GameView
-      key={`${room.code}-${room.seed}`}
+      key={`${room.code}-${room.seed}-${room.imageUrl}`}
       imageUrl={room.imageUrl}
       thumbUrl={room.thumbUrl}
       config={room.config}
@@ -377,7 +414,7 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
         controllerRef.current = null;
         setController(null);
       }}
-      onRestart={isHost ? onRestart : undefined}
+      onRestart={isHost ? openNextRound : undefined}
       multiplayer
       isHost={isHost}
       hostSettings={effectiveSettings}
@@ -400,6 +437,25 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
       }
     >
       <CursorsOverlay players={players} mySessionId={sessionId} controller={controller} />
+      {!isHost && room.choosingAt !== undefined && Date.now() - room.choosingAt < 180000 && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-lav-950/40 backdrop-blur-sm">
+          <Spinner />
+          <p className="glass rounded-2xl px-4 py-2 text-sm font-bold text-primary shadow-soft">
+            {players.find((p) => p.sessionId === room.hostSessionId)?.name ?? "The host"} is choosing the next
+            puzzle…
+          </p>
+        </div>
+      )}
+      {isHost && (
+        <NextRoundModal
+          open={nextRoundOpen}
+          onClose={closeNextRound}
+          onConfirm={(image, config) => void confirmNextRound(image, config)}
+          currentThumbUrl={room.thumbUrl}
+          currentConfig={room.config}
+          busy={nextRoundBusy}
+        />
+      )}
       <ChatPanel
         messages={messages}
         mySessionId={sessionId}

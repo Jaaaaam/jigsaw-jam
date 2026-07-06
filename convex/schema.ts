@@ -18,6 +18,8 @@ export default defineSchema({
     settings: v.optional(roomSettingsValidator),
     // transient host hint broadcast, overwritten each time
     hint: v.optional(roomHintValidator),
+    // host is picking the next round's photo; timestamp so clients can ignore stale flags
+    choosingAt: v.optional(v.number()),
   }).index("by_code", ["code"]),
 
   pieces: defineTable({
