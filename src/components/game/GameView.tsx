@@ -76,6 +76,11 @@ export function GameView(props: GameViewProps) {
   const propsRef = useRef(props);
   propsRef.current = props;
 
+  // Compare config by value: multiplayer passes a fresh `room.config` object
+  // whenever the room doc changes (hint, settings, completion), and rebuilding
+  // the controller for a deep-equal config resets the view and its lock.
+  const configKey = JSON.stringify(props.config);
+
   // ------------------------------------------------------------ boot
   useEffect(() => {
     let cancelled = false;
@@ -171,7 +176,8 @@ export function GameView(props: GameViewProps) {
       controllerRef.current = null;
       propsRef.current.onControllerGone?.();
     };
-  }, [props.imageUrl, props.seed, props.config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.imageUrl, props.seed, configKey]);
 
   // timer tick
   useEffect(() => {
@@ -208,12 +214,13 @@ export function GameView(props: GameViewProps) {
     else void document.documentElement.requestFullscreen();
   }, []);
 
-  const toggleViewLock = useCallback(() => {
-    setViewLocked((locked) => {
-      if (controllerRef.current) controllerRef.current.viewLocked = !locked;
-      return !locked;
-    });
-  }, []);
+  // keyed on `ready` so a rebuilt controller inherits the lock instead of
+  // booting unlocked while the button still shows "Locked"
+  useEffect(() => {
+    if (controllerRef.current) controllerRef.current.viewLocked = viewLocked;
+  }, [viewLocked, ready]);
+
+  const toggleViewLock = useCallback(() => setViewLocked((v) => !v), []);
 
   const pct = game.totalPieces ? Math.round((game.placedPieces / game.totalPieces) * 100) : 0;
 
