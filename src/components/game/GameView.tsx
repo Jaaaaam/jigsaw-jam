@@ -68,6 +68,8 @@ export function GameView(props: GameViewProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(() => window.innerWidth >= 1024);
   const [viewLocked, setViewLocked] = useState(false);
+  const viewLockedRef = useRef(viewLocked);
+  viewLockedRef.current = viewLocked;
   const [uiHidden, setUiHidden] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
@@ -124,13 +126,16 @@ export function GameView(props: GameViewProps) {
           },
         };
         // Compose local UI handlers with external (multiplayer) ones so both fire.
+        // External handlers resolve through propsRef at call time: the controller
+        // outlives room-doc updates now, so a handler captured at boot would keep
+        // stale closures (e.g. onEdgesDone writing the boot-time snapGuide back).
         const events: ControllerEvents = { ...local };
         if (p.events) {
           for (const key of Object.keys(p.events) as Array<keyof ControllerEvents>) {
-            const ext = p.events[key] as ((...a: unknown[]) => void) | undefined;
             const loc = local[key] as ((...a: unknown[]) => void) | undefined;
             (events[key] as unknown) = (...a: unknown[]) => {
               loc?.(...a);
+              const ext = propsRef.current.events?.[key] as ((...a: unknown[]) => void) | undefined;
               ext?.(...a);
             };
           }
