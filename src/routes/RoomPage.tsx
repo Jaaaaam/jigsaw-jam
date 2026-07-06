@@ -179,16 +179,21 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
   // room-wide play settings, host-controlled; legacy rooms fall back to config
   const effectiveSettings = room.settings ?? { snapGuide: true, edgesFirst: room.config.edgesFirst };
 
-  // join + heartbeat presence (with cursor piggybacked)
+  // join + heartbeat presence (with cursor piggybacked). Every heartbeat
+  // re-runs listPlayers for every player in the room, so these rates are a
+  // major driver of Convex usage — keep them as low as presence allows
+  // (ONLINE_WINDOW_MS in convex/presence.ts must stay comfortably larger).
   useEffect(() => {
     void join({ roomId, sessionId, name: playerName, color: myColor });
-    const beat = () =>
+    const beat = () => {
+      if (document.hidden) return; // backgrounded tabs just go stale
       void heartbeat({
         roomId,
         sessionId,
         ...(cursorRef.current ? { cursorX: cursorRef.current.x, cursorY: cursorRef.current.y } : {}),
       }).catch(() => undefined);
-    const t = setInterval(beat, 4000);
+    };
+    const t = setInterval(beat, 10000);
     return () => clearInterval(t);
   }, [roomId, sessionId, playerName, myColor, join, heartbeat]);
 
@@ -196,18 +201,21 @@ function ActiveRoom({ roomId, room, sessionId, playerName, myColor }: {
   useEffect(() => {
     if (!controller) return;
     let last = 0;
+    let lastSent: { x: number; y: number } | null = null;
     const onMove = (e: PointerEvent) => {
       cursorRef.current = controller.screenToWorld(e.clientX, e.clientY);
       const now = Date.now();
-      if (now - last > 180) {
-        last = now;
-        void heartbeat({
-          roomId,
-          sessionId,
-          cursorX: cursorRef.current.x,
-          cursorY: cursorRef.current.y,
-        }).catch(() => undefined);
-      }
+      if (now - last <= 500) return;
+      // skip micro-jitters — no point re-running listPlayers for a wiggle
+      if (lastSent && Math.hypot(e.clientX - lastSent.x, e.clientY - lastSent.y) < 8) return;
+      last = now;
+      lastSent = { x: e.clientX, y: e.clientY };
+      void heartbeat({
+        roomId,
+        sessionId,
+        cursorX: cursorRef.current.x,
+        cursorY: cursorRef.current.y,
+      }).catch(() => undefined);
     };
     window.addEventListener("pointermove", onMove);
     return () => window.removeEventListener("pointermove", onMove);

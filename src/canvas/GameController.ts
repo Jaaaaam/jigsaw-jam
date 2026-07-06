@@ -55,6 +55,8 @@ interface Tween {
   start: number;
   duration: number;
   onDone?: () => void;
+  /** Glide between remote drag-stream updates — safe to drop without onDone. */
+  remote?: boolean;
 }
 
 interface RemoteLock {
@@ -579,7 +581,19 @@ export class GameController {
       if (!p) continue;
       // never stomp a piece the local player is holding
       if (this.drag && this.groups.get(this.drag.groupId)?.has(p.id)) continue;
-      applySnapshot(p, s);
+      // pieces mid-drag by another player arrive at the stream rate — glide
+      // between updates instead of teleporting so low rates still look fluid
+      if (this.remoteLocks.has(s.id) && !s.placed && !this.opts.reducedMotion) {
+        const { x, y } = s;
+        applySnapshot(p, { ...s, x: p.pos.x, y: p.pos.y });
+        this.animatePiece(p, x, y, 240);
+        this.tweens[this.tweens.length - 1]!.remote = true;
+      } else {
+        // drop any in-flight glide so it can't override the settled position;
+        // local tweens (snap/settle animations) keep running untouched
+        this.tweens = this.tweens.filter((t) => !(t.remote && t.piece.id === p.id));
+        applySnapshot(p, s);
+      }
       this.zCounter = Math.max(this.zCounter, s.z + 1);
       changed = true;
     }
@@ -740,7 +754,9 @@ export class GameController {
         this.drag.hovered = false;
       }
       const now = performance.now();
-      if (now - this.drag.lastStream > 90) {
+      // stream sparingly: every tick re-runs pieces.list for every player in
+      // the room — this rate is the main driver of Convex usage
+      if (now - this.drag.lastStream > 250) {
         this.drag.lastStream = now;
         this.events.onStream?.(members.map(toSnapshot));
       }

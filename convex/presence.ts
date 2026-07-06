@@ -2,7 +2,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { v } from "convex/values";
 import type { HeartbeatArgs, JoinRoomArgs, RoomArgs } from "./types";
 
-const ONLINE_WINDOW_MS = 12_000;
+const ONLINE_WINDOW_MS = 25_000;
 
 export async function joinRoomHandler(ctx: MutationCtx, args: JoinRoomArgs) {
   const existing = await ctx.db
