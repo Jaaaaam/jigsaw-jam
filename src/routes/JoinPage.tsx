@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BrandLink, PageShell, SoundControl, ThemeToggle } from "@/components/PageShell";
 import { Button } from "@/components/ui/Button";
-import { multiplayerAvailable } from "@/lib/convexClient";
+import { MULTIPLAYER_ENABLED, multiplayerAvailable } from "@/lib/convexClient";
 import { useSettings } from "@/stores/settingsStore";
 import { randomName } from "@/services/session";
 
@@ -72,6 +72,15 @@ export default function JoinPage() {
                 Join puzzle →
               </Button>
             </form>
+          ) : !MULTIPLAYER_ENABLED ? (
+            <div className="space-y-4 text-center">
+              <p className="text-sm font-semibold text-secondary">
+                Multiplayer is currently not available. Check back soon — solo play works fully offline!
+              </p>
+              <Button variant="secondary" className="w-full" onClick={() => navigate("/new")}>
+                Play solo instead
+              </Button>
+            </div>
           ) : (
             <div className="space-y-4 text-center">
               <p className="text-sm font-semibold text-secondary">

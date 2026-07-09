@@ -5,7 +5,7 @@ import { BrandLink, PageShell, SoundControl, ThemeToggle } from "@/components/Pa
 import { Button } from "@/components/ui/Button";
 import { deleteSave, listSaves, type SaveMeta } from "@/services/saves";
 import { formatElapsed } from "@/stores/gameStore";
-import { multiplayerAvailable } from "@/lib/convexClient";
+import { MULTIPLAYER_ENABLED, multiplayerAvailable } from "@/lib/convexClient";
 
 const stagger = {
   hidden: {},
@@ -60,11 +60,19 @@ export default function HomePage() {
           <Button
             size="lg"
             variant="secondary"
-            onClick={() => navigate(multiplayerAvailable ? "/new?mode=host" : "/join")}
+            disabled={!multiplayerAvailable}
+            title={multiplayerAvailable ? undefined : "Multiplayer is currently not available"}
+            onClick={() => navigate("/new?mode=host")}
           >
             👥 Play with Friends
           </Button>
-          <Button size="lg" variant="secondary" onClick={() => navigate("/join")}>
+          <Button
+            size="lg"
+            variant="secondary"
+            disabled={!multiplayerAvailable}
+            title={multiplayerAvailable ? undefined : "Multiplayer is currently not available"}
+            onClick={() => navigate("/join")}
+          >
             🔑 Join a Room
           </Button>
         </motion.div>
@@ -119,12 +127,17 @@ export default function HomePage() {
           </motion.div>
         )}
 
-        {!multiplayerAvailable && (
-          <motion.p variants={rise} className="max-w-md text-xs font-semibold text-tertiary">
-            Multiplayer needs a Convex deployment — run <code className="rounded bg-black/10 px-1 dark:bg-white/10">npx convex dev</code>{" "}
-            and set <code className="rounded bg-black/10 px-1 dark:bg-white/10">VITE_CONVEX_URL</code>. Solo play works fully offline.
-          </motion.p>
-        )}
+        {!multiplayerAvailable &&
+          (!MULTIPLAYER_ENABLED ? (
+            <motion.p variants={rise} className="max-w-md text-xs font-semibold text-tertiary">
+              Multiplayer is currently not available. Solo play is fully functional.
+            </motion.p>
+          ) : (
+            <motion.p variants={rise} className="max-w-md text-xs font-semibold text-tertiary">
+              Multiplayer needs a Convex deployment — run <code className="rounded bg-black/10 px-1 dark:bg-white/10">npx convex dev</code>{" "}
+              and set <code className="rounded bg-black/10 px-1 dark:bg-white/10">VITE_CONVEX_URL</code>. Solo play works fully offline.
+            </motion.p>
+          ))}
       </motion.section>
 
       <footer className="space-y-1.5 pb-2 text-center text-xs font-semibold text-tertiary">
