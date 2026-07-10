@@ -104,6 +104,12 @@ export class GameController {
     offsets: Map<number, Vec2>;
     lastStream: number;
     hovered: boolean;
+    // where the grab started (screen coords) — distinguishes a click from a drag
+    downX: number;
+    downY: number;
+    moved: boolean;
+    // click-to-carry: piece follows the cursor with no button held; next click drops
+    sticky: boolean;
   } | null = null;
   private pan: { pointerId: number; startX: number; startY: number; vpX: number; vpY: number } | null = null;
   private pointers = new Map<number, Vec2>(); // screen coords
@@ -671,6 +677,24 @@ export class GameController {
 
   private onPointerDown(e: PointerEvent): void {
     if (this.paused || this.completed) return;
+
+    // click-to-carry: a click while carrying drops the group at the cursor
+    if (this.drag?.sticky) {
+      const world = this.screenToWorld(e.clientX, e.clientY);
+      this.lastCursorWorld = world;
+      const { groupId, offsets } = this.drag;
+      for (const p of this.groupPieces(groupId)) {
+        const off = offsets.get(p.id)!;
+        p.pos.x = world.x + off.x;
+        p.pos.y = world.y + off.y;
+      }
+      this.drag = null;
+      this.settleGroup(groupId);
+      this.canvas.style.cursor = "grab";
+      this.dirty = true;
+      return;
+    }
+
     this.canvas.setPointerCapture?.(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -702,7 +726,17 @@ export class GameController {
         offsets.set(p.id, { x: p.pos.x - world.x, y: p.pos.y - world.y });
         p.z = ++this.zCounter;
       }
-      this.drag = { groupId: hit.groupId, pointerId: e.pointerId, offsets, lastStream: 0, hovered: false };
+      this.drag = {
+        groupId: hit.groupId,
+        pointerId: e.pointerId,
+        offsets,
+        lastStream: 0,
+        hovered: false,
+        downX: e.clientX,
+        downY: e.clientY,
+        moved: false,
+        sticky: false,
+      };
       this.events.onPickUp?.(members.length);
       this.events.onClaim?.(members.map((p) => p.id));
       this.dirty = true;
@@ -714,10 +748,13 @@ export class GameController {
 
   private onPointerMove(e: PointerEvent): void {
     this.lastClient = { x: e.clientX, y: e.clientY };
-    if (!this.pointers.has(e.pointerId)) {
+    const tracked = this.pointers.has(e.pointerId);
+    if (tracked) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    } else if (!this.drag?.sticky) {
+      // sticky carries have no button held, so their moves arrive untracked
       return;
     }
-    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (this.pinch && this.pointers.size >= 2) {
       const [a, b] = [...this.pointers.values()];
@@ -735,7 +772,10 @@ export class GameController {
       return;
     }
 
-    if (this.drag && e.pointerId === this.drag.pointerId) {
+    if (this.drag && (this.drag.sticky || e.pointerId === this.drag.pointerId)) {
+      if (Math.hypot(e.clientX - this.drag.downX, e.clientY - this.drag.downY) > 6) {
+        this.drag.moved = true;
+      }
       const world = this.screenToWorld(e.clientX, e.clientY);
       this.lastCursorWorld = world;
       const members = this.groupPieces(this.drag.groupId);
@@ -776,9 +816,14 @@ export class GameController {
     if (this.pinch && this.pointers.size < 2) this.pinch = null;
 
     if (this.drag && e.pointerId === this.drag.pointerId) {
-      const groupId = this.drag.groupId;
-      this.drag = null;
-      this.settleGroup(groupId);
+      if (!this.drag.moved && !this.drag.sticky) {
+        // a click, not a drag — keep carrying until the next click drops it
+        this.drag.sticky = true;
+      } else {
+        const groupId = this.drag.groupId;
+        this.drag = null;
+        this.settleGroup(groupId);
+      }
     }
     if (this.pan && e.pointerId === this.pan.pointerId) this.pan = null;
     if (!this.drag && !this.pan) this.canvas.style.cursor = "grab";
